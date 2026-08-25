@@ -1,0 +1,62 @@
+# AEGIS image spatial+frequency classifier training configuration.
+
+version: "1.0.0"
+
+split:
+  split_dir: data/processed/image/splits
+  split_version: "1.0.0"
+  preprocessing_version: "1.0.0"
+  metadata_path: data/processed/image/preprocessing/metadata.csv
+
+data:
+  input_source: normalized_npy
+  num_workers: 0
+  pin_memory: false
+
+model:
+  type: spatial_frequency
+  spatial_branch:
+    enabled: true
+    backbone: efficientnet_b4
+    pretrained: true
+    dropout: 0.2
+    input_size: 224
+  frequency_branch:
+    enabled: true
+    out_features: 128
+  fusion_dropout: 0.2
+
+training:
+  seed: 42
+  batch_size: 16
+  epochs: 2
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-5
+  optimizer: adamw
+  scheduler: cosine
+  scheduler_min_lr: 1.0e-6
+  early_stopping:
+    enabled: true
+    patience: 5
+    monitor: val_roc_auc
+    mode: max
+  mixed_precision: auto
+  class_weighting: auto
+  class_imbalance_threshold: 0.05
+
+evaluation:
+  threshold: 0.5
+  splits:
+    - val
+    - test_seen
+    - test_unseen
+
+outputs:
+  checkpoint_dir: models/image_fusion
+  report_dir: reports/image_spatial_frequency
+  results_path: results/ablation_B.json
+
+logging:
+  experiment_name: aegis-spatial-frequency
+  mlflow_tracking_uri: mlruns
+  use_mlflow: auto

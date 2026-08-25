@@ -1,0 +1,61 @@
+# AEGIS video temporal baseline classifier training configuration.
+#
+# Loads samples exclusively from generated split manifests. Never scans raw video directories directly.
+
+version: "1.0.0"
+
+split:
+  split_dir: data/processed/video/splits
+  split_version: "1.0.0"
+  preprocessing_version: "1.0.0"
+  metadata_path: data/processed/video/preprocessing/metadata.csv
+
+data:
+  input_source: frames
+  num_workers: 0
+  pin_memory: false
+
+model:
+  model_type: "baseline"
+  backbone: efficientnet_b4
+  pretrained: true
+  sequence_length: 16
+  lstm_hidden: 512
+  lstm_layers: 2
+  dropout: 0.2
+  input_size: 224
+
+training:
+  seed: 42
+  batch_size: 16
+  epochs: 2
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-5
+  optimizer: adamw
+  scheduler: cosine
+  scheduler_min_lr: 1.0e-6
+  early_stopping:
+    enabled: true
+    patience: 5
+    monitor: val_roc_auc
+    mode: max
+  mixed_precision: auto
+  class_weighting: auto
+  class_imbalance_threshold: 0.05
+
+evaluation:
+  threshold: 0.5
+  splits:
+    - val
+    - test_seen
+    - test_unseen
+
+outputs:
+  checkpoint_dir: models/video
+  report_dir: reports/video_baseline
+  results_path: results/video_baseline.json
+
+logging:
+  experiment_name: aegis-video-baseline
+  mlflow_tracking_uri: mlruns
+  use_mlflow: auto

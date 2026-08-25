@@ -1,0 +1,49 @@
+# AEGIS image preprocessing pipeline configuration.
+#
+# Produces standardized 224x224 face crops from raw manifest images without
+# modifying source files. Outputs are stored separately with full metadata.
+
+version: "1.0.0"
+
+manifest_path: data/processed/image/mini_manifest.csv
+project_root: null
+
+output:
+  crops_dir: data/processed/image/preprocessing/crops
+  normalized_dir: data/processed/image/preprocessing/normalized
+  metadata_path: data/processed/image/preprocessing/metadata.csv
+
+failures_path: reports/preprocessing_failures.csv
+summary_path: reports/preprocessing_summary.json
+
+detector:
+  name: mtcnn
+  min_confidence: 0.90
+  min_face_size: 20
+
+face_selection:
+  multi_face_policy: largest
+
+cropping:
+  margin_factor: 0.25
+  output_size: 224
+  align_faces: true
+
+normalization:
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+  scale_to_0_1_first: true
+
+processing:
+  save_crop_jpeg: true
+  save_normalized_npy: true
+  jpeg_quality: 95
+  log_every: 500
+  resume: true
+  retry_failures: true
+  max_images: null
+
+validation:
+  allowed_extensions: [".jpg", ".jpeg"]
+  min_dimension: 16
+  max_dimension: 8192

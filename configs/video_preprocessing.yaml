@@ -1,0 +1,5 @@
+fps: 5
+face_size: 224
+input_root: "data/processed/video/manifest.csv"
+output_root: "data/processed/video/frames"
+margin_factor: 0.25

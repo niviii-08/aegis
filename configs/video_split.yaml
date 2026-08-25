@@ -1,0 +1,59 @@
+version: "1.0.0"
+
+manifest_path: data/processed/video/manifest.csv
+output_dir: data/processed/video/splits
+statistics_path: reports/video/split_statistics.json
+
+generator_taxonomy:
+  authentic:
+    - original
+    - youtube
+  seen_forgery:
+    - Deepfakes
+    - Face2Face
+    - FaceSwap
+    - NeuralTextures
+  unseen_forgery:
+    - celeb_df
+
+split_generators:
+  train:
+    - original
+    - youtube
+    - Deepfakes
+    - Face2Face
+    - FaceSwap
+    - NeuralTextures
+  val:
+    - original
+    - youtube
+    - Deepfakes
+    - Face2Face
+    - FaceSwap
+    - NeuralTextures
+  test_seen:
+    - original
+    - youtube
+    - Deepfakes
+    - Face2Face
+    - FaceSwap
+    - NeuralTextures
+  test_unseen:
+    - original
+    - youtube
+    - celeb_df
+
+validation:
+  min_minority_class_fraction: 0.10
+  incompatible_split_pairs:
+    - [train, test_seen]
+    - [train, test_unseen]
+    - [val, test_seen]
+    - [val, test_unseen]
+    - [test_seen, test_unseen]
+
+limitations:
+  notes:
+    - >-
+      Splits are derived dynamically based on hashing the video_id to avoid temporal
+      leakage. Unseen generators are hard-assigned to test_unseen.

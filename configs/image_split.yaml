@@ -1,0 +1,72 @@
+# AEGIS generalization-aware image split policy.
+#
+# This configuration is deterministic: unseen generators are fixed here and are
+# never chosen at random during split construction.
+
+version: "1.0.0"
+
+manifest_path: data/processed/image/manifest.csv
+output_dir: data/processed/image/splits
+statistics_path: reports/split_statistics.json
+
+# Canonical generator identifiers used across manifests, configs, and reports.
+generator_taxonomy:
+  authentic:
+    - ffhq_authentic
+  seen_forgery:
+    - stylegan
+  unseen_forgery:
+    - deepfakes
+    - face2face
+    - faceswap
+    - neuraltextures
+    - faceshifter
+    - deepfake_detection
+
+# Explicit generator assignments per evaluation split role.
+split_generators:
+  train:
+    - ffhq_authentic
+    - stylegan
+  val:
+    - ffhq_authentic
+    - stylegan
+  test_seen:
+    - ffhq_authentic
+    - stylegan
+  test_unseen:
+    # Reserved for held-out forgery generators once media is available.
+    - deepfakes
+    - face2face
+    - faceswap
+    - neuraltextures
+    - faceshifter
+    - deepfake_detection
+
+# Map upstream manifest split names to AEGIS evaluation roles when unseen
+# generator media is not yet present locally.
+source_split_mapping:
+  train: train
+  valid: val
+  test: test_seen
+
+validation:
+  # Fail validation when minority class share drops below this fraction.
+  min_minority_class_fraction: 0.10
+  incompatible_split_pairs:
+    - [train, test_seen]
+    - [train, test_unseen]
+    - [val, test_seen]
+    - [val, test_unseen]
+    - [test_seen, test_unseen]
+
+limitations:
+  missing_for_unseen_generator_eval:
+    - multi_generator_forgery_media
+    - faceforensics_plus_downloaded_sequences
+    - verified_cross_sample_person_identity_metadata
+  notes:
+    - >-
+      Local corpus contains only FFHQ-authentic reals and StyleGAN fakes. All
+      forgery generators listed under unseen_forgery are reserved but have zero
+      samples until additional datasets are ingested.

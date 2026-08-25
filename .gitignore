@@ -1,0 +1,53 @@
+@"
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Datasets / large media
+FaceForensics++_C23/
+FaceForensics-master/
+LA/
+data/
+archive (1)/
+archive (2)/
+
+# Generated outputs
+results/
+reports/
+
+# Model weights / checkpoints
+models/
+*.pth
+*.pt
+*.ckpt
+*.onnx
+
+# Video / image files
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+
+# Logs
+*.log
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+"@ | Out-File -Encoding utf8 .gitignore
