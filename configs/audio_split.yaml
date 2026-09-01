@@ -1,0 +1,135 @@
+# AEGIS generalization-aware audio split policy.
+#
+# This configuration is deterministic: unseen generators are fixed here and are
+# never chosen at random during split construction.
+#
+# CRITICAL: All clips from the same speaker_id must land in the same split to
+# prevent speaker leakage across evaluation splits.
+
+version: "1.0.0"
+
+manifest_path: data/processed/audio/manifest.csv
+output_dir: data/processed/audio/splits
+statistics_path: reports/audio/split_statistics.json
+
+# Canonical generator identifiers used across manifests, configs, and reports.
+# Generator codes from ASVspoof protocol files:
+#   - bonafide: genuine human speech (label=real)
+#   - A01–A06: ASVspoof 2019 LA attacks (seen forgery generators)
+#   - A07–A19: ASVspoof 2021 LA attacks (unseen forgery generators)
+#   - coqui: Coqui TTS generated clips (unseen)
+generator_taxonomy:
+  authentic:
+    - bonafide
+  seen_forgery:
+    - A01
+    - A02
+    - A03
+    - A04
+    - A05
+    - A06
+  unseen_forgery:
+    - A07
+    - A08
+    - A09
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - coqui
+
+# Explicit generator assignments per evaluation split role.
+split_generators:
+  train:
+    - bonafide
+    - A01
+    - A02
+    - A03
+    - A04
+    - A05
+    - A06
+  val:
+    - bonafide
+    - A01
+    - A02
+    - A03
+    - A04
+    - A05
+    - A06
+  test_seen:
+    - bonafide
+    - A01
+    - A02
+    - A03
+    - A04
+    - A05
+    - A06
+  test_unseen:
+    - A07
+    - A08
+    - A09
+    - A10
+    - A11
+    - A12
+    - A13
+    - A14
+    - A15
+    - A16
+    - A17
+    - A18
+    - A19
+    - coqui
+
+# Map upstream manifest dataset splits to AEGIS evaluation roles.
+# ASVspoof 2019 LA train/dev/eval → train/val/test_seen
+# ASVspoof 2021 LA and Coqui TTS → test_unseen
+source_split_mapping:
+  train: train
+  val: val
+  test_seen: test_seen
+  test_unseen: test_unseen
+
+# Speaker-based splitting configuration
+speaker_split:
+  # Strategy: "by_speaker" (all clips from same speaker in same split)
+  strategy: by_speaker
+  # Minimum clips per speaker to include (filter out speakers with too few clips)
+  min_clips_per_speaker: 1
+  # Target split ratios for seen generators (train/val/test_seen)
+  # These are approximate targets; actual ratios depend on speaker distribution
+  target_ratios:
+    train: 0.70
+    val: 0.15
+    test_seen: 0.15
+
+validation:
+  # Fail validation when minority class share drops below this fraction.
+  min_minority_class_fraction: 0.10
+  # Check for speaker leakage across these split pairs
+  incompatible_split_pairs:
+    - [train, test_seen]
+    - [train, test_unseen]
+    - [val, test_seen]
+    - [val, test_unseen]
+    - [test_seen, test_unseen]
+
+limitations:
+  notes:
+    - >-
+      Splits are constructed by speaker_id to prevent speaker leakage. All clips
+      from the same speaker are assigned to the same split.
+    - >-
+      Seen generators (bonafide + A01–A06 from ASVspoof 2019 LA) are split into
+      train/val/test_seen using speaker-based stratification.
+    - >-
+      Unseen generators (A07–A19 from ASVspoof 2021 LA + Coqui TTS) are assigned
+      exclusively to test_unseen.
+    - >-
+      Actual split ratios may differ from target_ratios due to speaker-level
+      constraints and generator-specific speaker distributions.

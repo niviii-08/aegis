@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans antialiased;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors duration-200 font-medium;
+  }
+  
+  .btn-secondary {
+    @apply px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors duration-200 font-medium;
+  }
+  
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-200 p-6;
+  }
+  
+  .section-header {
+    @apply text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2;
+  }
+  
+  .metric-card {
+    @apply bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow duration-200;
+  }
+  
+  .metric-value {
+    @apply text-3xl font-bold text-gray-900;
+  }
+  
+  .metric-label {
+    @apply text-sm text-gray-600 font-medium;
+  }
+  
+  .status-badge {
+    @apply px-2 py-1 rounded-full text-xs font-medium;
+  }
+  
+  .status-healthy {
+    @apply bg-green-100 text-green-800;
+  }
+  
+  .status-unhealthy {
+    @apply bg-red-100 text-red-800;
+  }
+  
+  .status-warning {
+    @apply bg-yellow-100 text-yellow-800;
+  }
+  
+  .upload-zone {
+    @apply border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-primary-400 transition-colors duration-200 cursor-pointer;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-to-r from-primary-600 to-primary-800 bg-clip-text text-transparent;
+  }
+}

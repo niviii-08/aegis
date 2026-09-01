@@ -8,7 +8,7 @@ version: "1.0.0"
 split:
   split_dir: data/processed/image/splits
   split_version: "1.0.0"
-  preprocessing_version: "1.0.0"
+  preprocessing_version: "image_facecrop_v1"  # Must match metadata.csv preprocessing_version
   metadata_path: data/processed/image/preprocessing/metadata.csv
 
 data:
@@ -25,7 +25,7 @@ model:
 training:
   seed: 42
   batch_size: 16
-  epochs: 2
+  epochs: 20  # Increased from 2 for proper training (early stopping will prevent overfitting)
   learning_rate: 1.0e-4
   weight_decay: 1.0e-5
   optimizer: adamw
@@ -37,7 +37,7 @@ training:
     monitor: val_roc_auc
     mode: max
   mixed_precision: auto
-  class_weighting: auto
+  class_weighting: auto  # Balanced dataset (50/50), so likely won't apply weighting
   class_imbalance_threshold: 0.05
 
 evaluation:
@@ -45,7 +45,6 @@ evaluation:
   splits:
     - val
     - test_seen
-    - test_unseen
 
 outputs:
   checkpoint_dir: models/image

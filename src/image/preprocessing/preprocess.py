@@ -16,11 +16,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import logging
 import sys
 import tempfile
 import time
+import shutil
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,6 +68,7 @@ METADATA_COLUMNS: tuple[str, ...] = (
     "error_message",
     "processing_time_ms",
     "processed_at",
+    "retry_count",
 )
 
 FAILURE_COLUMNS: tuple[str, ...] = (
@@ -76,6 +80,7 @@ FAILURE_COLUMNS: tuple[str, ...] = (
     "detector",
     "preprocessing_version",
     "processed_at",
+    "retry_count",
 )
 
 SUCCESS_STATUS = "success"
@@ -92,7 +97,7 @@ FAILURE_STATUSES = frozenset(
 )
 
 
-@dataclass(frozen=True)
+@dataclass
 class PreprocessConfig:
     """Parsed preprocessing configuration."""
 
@@ -123,6 +128,13 @@ class PreprocessConfig:
     min_dimension: int
     max_dimension: int
     config_path: Path
+    preprocessing_version: str = "image_facecrop_v1"
+    preprocessing_timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    code_version: str = "1.0.0"
+    configuration_hash: str = ""
+    registry_path: Path = None
+    dry_run: bool = False
+    batch_size: int = 1000
 
 
 @dataclass(frozen=True)
@@ -166,6 +178,9 @@ class PreprocessSummary:
     average_face_size_pixels: float = 0.0
     total_processing_time_seconds: float = 0.0
     notes: list[str] = field(default_factory=list)
+    preprocessing_version_tag: str = ""
+    code_version: str = ""
+    configuration_hash: str = ""
 
 
 def load_preprocess_config(config_path: Path, project_root: Path | None = None) -> PreprocessConfig:
@@ -192,6 +207,10 @@ def load_preprocess_config(config_path: Path, project_root: Path | None = None) 
     )
 
     max_images = processing.get("max_images")
+    config_hash = hashlib.sha256()
+    with config_path.open("rb") as f:
+        config_hash.update(f.read())
+    config_hash_str = config_hash.hexdigest()[:16]
     return PreprocessConfig(
         version=str(raw.get("version", "0.0.0")),
         manifest_path=(root / raw.get("manifest_path", "data/processed/image/manifest.csv")).resolve(),
@@ -223,6 +242,11 @@ def load_preprocess_config(config_path: Path, project_root: Path | None = None) 
         min_dimension=int(validation.get("min_dimension", 16)),
         max_dimension=int(validation.get("max_dimension", 8192)),
         config_path=config_path.resolve(),
+        preprocessing_version="image_facecrop_v1",
+        preprocessing_timestamp=datetime.now(timezone.utc).isoformat(),
+        code_version="1.0.0",
+        configuration_hash=config_hash_str,
+        registry_path=(root / "data/processed/image/sample_registry.csv").resolve(),
     )
 
 
@@ -272,7 +296,12 @@ def should_skip_sample(
     if prior is None:
         return False
 
-    if prior.get("preprocessing_version") != config.version:
+    prior_version = prior.get("preprocessing_version", "")
+    config_versions = [
+        getattr(config, "preprocessing_version", "") or "",
+        getattr(config, "version", "") or "",
+    ]
+    if prior_version not in config_versions:
         return False
 
     status = prior.get("status", "")
@@ -360,6 +389,7 @@ def build_metadata_row(
     source_width: int | None = None,
     source_height: int | None = None,
     processing_time_ms: float = 0.0,
+    retry_count: int = 0,
 ) -> dict[str, str]:
     """Construct one metadata CSV row."""
     row = {column: "" for column in METADATA_COLUMNS}
@@ -377,6 +407,7 @@ def build_metadata_row(
             "error_message": error_message,
             "processing_time_ms": f"{processing_time_ms:.2f}",
             "processed_at": datetime.now(timezone.utc).isoformat(),
+            "retry_count": str(retry_count),
         }
     )
     if source_width is not None:
@@ -411,14 +442,18 @@ def write_outputs(
 
     if config.save_crop_jpeg:
         crop_path = config.crops_dir / f"{basename}.jpg"
+        crop_tmp = crop_path.with_name(crop_path.name + '.tmp.jpg')
         bgr = cv2.cvtColor(crop_rgb, cv2.COLOR_RGB2BGR)
-        if not cv2.imwrite(str(crop_path), bgr, [int(cv2.IMWRITE_JPEG_QUALITY), config.jpeg_quality]):
+        if not cv2.imwrite(str(crop_tmp), bgr, [int(cv2.IMWRITE_JPEG_QUALITY), config.jpeg_quality]):
             raise OSError(f"Failed to write crop JPEG: {crop_path}")
+        os.replace(str(crop_tmp), str(crop_path))
         crop_rel = relative_project_path(crop_path, config.project_root)
 
     if config.save_normalized_npy:
         norm_path = config.normalized_dir / f"{basename}.npy"
-        np.save(norm_path, normalized_chw)
+        norm_tmp = norm_path.with_name(norm_path.name + '.tmp.npy')
+        np.save(norm_tmp, normalized_chw)
+        os.replace(str(norm_tmp), str(norm_path))
         norm_rel = relative_project_path(norm_path, config.project_root)
 
     return crop_rel, norm_rel
@@ -649,12 +684,133 @@ def write_summary_json(summary: PreprocessSummary, output_path: Path) -> None:
     temp_path.replace(output_path)
 
 
+
 def run_preprocessing(config: PreprocessConfig) -> PreprocessSummary:
-    """Execute the resumable preprocessing pipeline."""
+    import pandas as pd
+    import shutil
     run_started = time.perf_counter()
-    manifest_rows = read_manifest_rows(config.manifest_path)
+    
+    # Load registry
+    registry_df = pd.read_csv(config.registry_path, low_memory=False)
+    total_samples = len(registry_df)
+    
+    # Ensure required columns exist
+    for col in ["retry_count", "failure_reason"]:
+        if col not in registry_df.columns:
+            registry_df[col] = 0 if col == "retry_count" else ""
+    
+    # Crash recovery: reset PROCESSING entries to RAW/FAILED based on artifacts
+    processing_mask = registry_df["status"] == "PROCESSING"
+    if processing_mask.any():
+        logger.info(f"Recovering {processing_mask.sum()} PROCESSING entries from prior crash...")
+        for idx in registry_df[processing_mask].index:
+            sid = registry_df.at[idx, "sample_id"]
+            crop_path = config.project_root / str(registry_df.at[idx, "crop_path"]) if pd.notna(registry_df.at[idx, "crop_path"]) and registry_df.at[idx, "crop_path"] else None
+            norm_path = config.project_root / str(registry_df.at[idx, "processed_path"]) if pd.notna(registry_df.at[idx, "processed_path"]) and registry_df.at[idx, "processed_path"] else None
+            
+            crop_ok = crop_path and crop_path.exists() and crop_path.stat().st_size > 0
+            norm_ok = False
+            if norm_path and norm_path.exists() and norm_path.stat().st_size > 0:
+                try:
+                    np.load(norm_path, allow_pickle=False)
+                    norm_ok = True
+                except Exception:
+                    norm_ok = False
+            
+            if crop_ok and norm_ok:
+                registry_df.at[idx, "status"] = "PROCESSED"
+                registry_df.at[idx, "failure_reason"] = ""
+            else:
+                registry_df.at[idx, "status"] = "FAILED"
+                registry_df.at[idx, "failure_reason"] = "recovered_from_processing:incomplete_artifacts"
+                registry_df.at[idx, "retry_count"] = int(registry_df.at[idx, "retry_count"]) + 1
+    
+    # Find already processed
+    already_processed = registry_df[registry_df["status"] == "PROCESSED"]
+    num_processed = len(already_processed)
+    
+    # Filter to eligible
+    if config.retry_failures:
+        eligible_df = registry_df[registry_df["status"].isin(["RAW", "FAILED"])]
+    else:
+        eligible_df = registry_df[registry_df["status"] == "RAW"]
+        
+    eligible_rows = eligible_df.to_dict('records')
+    
     if config.max_images is not None:
-        manifest_rows = manifest_rows[: config.max_images]
+        eligible_rows = eligible_rows[: config.max_images]
+
+    num_eligible = len(eligible_rows)
+    
+    # Resource checking
+    estimated_bytes = num_eligible * (20*1024 + 602*1024)  # approx 622KB per sample
+    free_bytes = shutil.disk_usage(config.crops_dir.parent if config.crops_dir.exists() else config.project_root).free
+    
+    # Dry-run mode
+    if config.dry_run:
+        logger.info("================ DRY RUN MODE ================")
+        logger.info(f"Total registry samples:      {total_samples:,}")
+        logger.info(f"Already PROCESSED:           {num_processed:,}")
+        logger.info(f"FAILED:                      {(registry_df['status'] == 'FAILED').sum():,}")
+        logger.info(f"Eligible to process:         {num_eligible:,}")
+        logger.info(f"Estimated storage req:       {estimated_bytes/1e9:.2f} GB")
+        logger.info(f"Available free space:        {free_bytes/1e9:.2f} GB")
+        
+        # Check for invalid/missing source files
+        invalid_source = 0
+        for _, row in registry_df.iterrows():
+            raw_path = config.project_root / str(row["raw_path"]) if pd.notna(row["raw_path"]) and row["raw_path"] else None
+            if raw_path and not raw_path.exists():
+                invalid_source += 1
+        logger.info(f"Invalid/missing source files: {invalid_source:,}")
+        
+        # Check for duplicate source paths
+        raw_paths = registry_df["raw_path"].dropna().tolist()
+        duplicate_sources = len(raw_paths) - len(set(raw_paths))
+        logger.info(f"Duplicate source paths:      {duplicate_sources:,}")
+        
+        # Check for orphan artifacts
+        if config.crops_dir.exists():
+            crop_files = list(config.crops_dir.glob("*.jpg")) + list(config.crops_dir.glob("*.png"))
+            norm_files = list(config.normalized_dir.glob("*.npy")) if config.normalized_dir.exists() else []
+            
+            crop_stems = {c.stem for c in crop_files}
+            norm_stems = {n.stem for n in norm_files}
+            
+            registry_crop_stems = set()
+            for _, row in registry_df.iterrows():
+                if pd.notna(row.get("crop_path")) and row["crop_path"]:
+                    registry_crop_stems.add(Path(row["crop_path"]).stem)
+            
+            orphan_crops = crop_stems - registry_crop_stems
+            orphan_norms = norm_stems - registry_crop_stems
+            logger.info(f"Orphan crop files:           {len(orphan_crops):,}")
+            logger.info(f"Orphan normalized files:     {len(orphan_norms):,}")
+        
+        # Check registry inconsistencies
+        proc_without_meta = 0
+        for _, row in already_processed.iterrows():
+            if pd.notna(row.get("crop_path")) and row["crop_path"]:
+                crop = config.project_root / row["crop_path"]
+                if not crop.exists():
+                    proc_without_meta += 1
+        logger.info(f"PROCESSED without crop file: {proc_without_meta:,}")
+        
+        logger.info("==============================================")
+        if estimated_bytes > free_bytes:
+            logger.error("INSUFFICIENT DISK SPACE FOR FULL RUN")
+        logger.info("[DRY-RUN] No files would be modified.")
+        return PreprocessSummary(
+            preprocessing_version=config.preprocessing_version,
+            config_path=str(config.config_path),
+            manifest_path=str(config.registry_path),
+            detector=config.detector_name,
+            run_timestamp=datetime.now(timezone.utc).isoformat(),
+            total_images=num_eligible
+        )
+        
+    if estimated_bytes > free_bytes:
+        raise OSError(f"Insufficient disk space. Need {estimated_bytes/1e9:.2f}GB, have {free_bytes/1e9:.2f}GB")
 
     existing = load_existing_metadata(config.metadata_path)
     detector = create_face_detector(
@@ -672,32 +828,70 @@ def run_preprocessing(config: PreprocessConfig) -> PreprocessSummary:
     )
 
     summary = PreprocessSummary(
-        preprocessing_version=config.version,
+        preprocessing_version=config.preprocessing_version,
         config_path=str(config.config_path),
-        manifest_path=str(config.manifest_path),
+        manifest_path=str(config.registry_path),
         detector=config.detector_name,
         run_timestamp=datetime.now(timezone.utc).isoformat(),
-        total_images=len(manifest_rows),
+        total_images=num_eligible,
+        preprocessing_version_tag=config.preprocessing_version,
+        code_version=config.code_version,
+        configuration_hash=config.configuration_hash,
     )
 
     merged_metadata: dict[str, dict[str, str]] = dict(existing)
     face_areas: list[int] = []
 
-    for index, row in enumerate(manifest_rows, start=1):
-        sample_id = row["sample_id"]
-        if should_skip_sample(sample_id, config, existing):
-            summary.skipped_resumed += 1
-            if index % config.log_every == 0:
-                logger.info(
-                    "Progress %s/%s (skipped=%s, processed=%s)",
-                    index,
-                    len(manifest_rows),
-                    summary.skipped_resumed,
-                    summary.processed_this_run,
-                )
-            continue
+    checkpoint_interval = config.batch_size
+    
+    # We will update registry_df in place and flush it
+    registry_idx_map = {row["sample_id"]: idx for idx, row in registry_df.iterrows()}
+    last_checkpoint_count = 0
 
-        outcome = process_sample(row, config=config, detector=detector, cropper=cropper)
+    def flush_checkpoint(force: bool = False):
+        nonlocal last_checkpoint_count
+        if not force and summary.processed_this_run == last_checkpoint_count:
+            return  # Nothing changed since last checkpoint
+        last_checkpoint_count = summary.processed_this_run
+        
+        # Write metadata and failures
+        ordered_rows = [merged_metadata[sid] for sid in merged_metadata]
+        write_csv_atomic(ordered_rows, config.metadata_path, METADATA_COLUMNS)
+        write_failures_csv(ordered_rows, config.failures_path)
+        
+        # Flush registry atomically - only write rows that changed since start
+        # For efficiency, we write the full registry but only at checkpoint intervals
+        registry_out = config.registry_path.with_suffix('.csv.tmp')
+        registry_df.to_csv(registry_out, index=False)
+        os.replace(str(registry_out), str(config.registry_path))
+
+    for index, row in enumerate(eligible_rows, start=1):
+        sample_id = row["sample_id"]
+        
+        # Mark as PROCESSING for crash recovery
+        reg_idx = registry_idx_map[sample_id]
+        registry_df.at[reg_idx, "status"] = "PROCESSING"
+        registry_df.at[reg_idx, "preprocessing_timestamp"] = datetime.now(timezone.utc).isoformat()
+        
+        # Fake manifest row for process_sample
+        manifest_row = {"sample_id": sample_id, "path": row["raw_path"]}
+        
+        try:
+            outcome = process_sample(manifest_row, config=config, detector=detector, cropper=cropper)
+        except Exception as exc:
+            outcome = ProcessOutcome(
+                metadata_row=build_metadata_row(
+                    sample_id=sample_id,
+                    original_path=row["raw_path"],
+                    config=config,
+                    status="processor_error",
+                    error_message=str(exc),
+                ),
+                is_success=False,
+                is_no_face=False,
+                is_multi_face=False,
+            )
+        
         merged_metadata[sample_id] = outcome.metadata_row
         summary.processed_this_run += 1
 
@@ -705,47 +899,78 @@ def run_preprocessing(config: PreprocessConfig) -> PreprocessSummary:
             summary.successful_crops += 1
             if outcome.face_area is not None:
                 face_areas.append(outcome.face_area)
+                
+            # Verify artifacts exist and are readable before marking PROCESSED
+            crop_path = config.project_root / outcome.metadata_row["processed_crop_path"]
+            norm_path = config.project_root / outcome.metadata_row["processed_normalized_path"]
+            
+            crop_ok = crop_path.exists() and crop_path.stat().st_size > 0
+            norm_ok = False
+            if norm_path.exists() and norm_path.stat().st_size > 0:
+                try:
+                    np.load(norm_path, allow_pickle=False)
+                    norm_ok = True
+                except Exception:
+                    norm_ok = False
+            
+            if crop_ok and norm_ok:
+                # Compute hash of crop
+                h = hashlib.sha256()
+                with open(crop_path, 'rb') as f:
+                    while chunk := f.read(65536):
+                        h.update(chunk)
+                
+                # Update registry
+                registry_df.at[reg_idx, "status"] = "PROCESSED"
+                registry_df.at[reg_idx, "crop_path"] = outcome.metadata_row["processed_crop_path"]
+                registry_df.at[reg_idx, "processed_path"] = outcome.metadata_row["processed_normalized_path"]
+                registry_df.at[reg_idx, "file_hash"] = h.hexdigest()
+                registry_df.at[reg_idx, "preprocessing_version"] = config.preprocessing_version
+                registry_df.at[reg_idx, "preprocessing_timestamp"] = outcome.metadata_row["processed_at"]
+                registry_df.at[reg_idx, "code_version"] = config.code_version
+                registry_df.at[reg_idx, "configuration_hash"] = config.configuration_hash
+                registry_df.at[reg_idx, "failure_reason"] = ""
+            else:
+                summary.failed_crops += 1
+                registry_df.at[reg_idx, "status"] = "FAILED"
+                registry_df.at[reg_idx, "failure_reason"] = f"artifact_verification_failed:crop_ok={crop_ok},norm_ok={norm_ok}"
         else:
             summary.failed_crops += 1
+            registry_df.at[reg_idx, "status"] = "FAILED"
+            registry_df.at[reg_idx, "failure_reason"] = outcome.metadata_row.get("status", "unknown")
+            
         if outcome.is_no_face:
             summary.no_face_cases += 1
         if outcome.is_multi_face:
             summary.multi_face_cases += 1
 
-        if index % config.log_every == 0 or index == len(manifest_rows):
+        if index % config.log_every == 0 or index == num_eligible:
+            elapsed = time.perf_counter() - run_started
+            throughput = index / elapsed if elapsed > 0 else 0
+            remaining = num_eligible - index
+            eta = remaining / throughput if throughput > 0 else 0
             logger.info(
-                "Progress %s/%s | success=%s failed=%s skipped=%s",
+                "Progress %s/%s | success=%s failed=%s | throughput=%.1f img/s eta=%.1fs (%.1f%%)",
                 index,
-                len(manifest_rows),
+                num_eligible,
                 summary.successful_crops,
                 summary.failed_crops,
-                summary.skipped_resumed,
+                throughput,
+                eta,
+                (index / num_eligible) * 100
             )
 
-    ordered_rows = [merged_metadata[row["sample_id"]] for row in manifest_rows if row["sample_id"] in merged_metadata]
-    write_csv_atomic(ordered_rows, config.metadata_path, METADATA_COLUMNS)
-    write_failures_csv(ordered_rows, config.failures_path)
+        # Periodic checkpoint
+        if index % checkpoint_interval == 0 or index == num_eligible:
+            flush_checkpoint()
 
-    summary.successful_crops = sum(1 for row in ordered_rows if row.get("status") == SUCCESS_STATUS)
-    summary.failed_crops = sum(1 for row in ordered_rows if row.get("status") != SUCCESS_STATUS)
-    summary.no_face_cases = sum(1 for row in ordered_rows if row.get("status") == "no_face")
-    summary.multi_face_cases = sum(
-        1 for row in ordered_rows if row.get("status") == SUCCESS_STATUS and int(row.get("face_count") or 0) > 1
-    )
+    flush_checkpoint()
 
-    all_face_areas = [
-        int(row["bbox_w"]) * int(row["bbox_h"])
-        for row in ordered_rows
-        if row.get("status") == SUCCESS_STATUS and row.get("bbox_w") and row.get("bbox_h")
-    ]
-    if all_face_areas:
-        summary.average_face_size_pixels = float(sum(all_face_areas) / len(all_face_areas))
-    elif face_areas:
-        summary.average_face_size_pixels = float(sum(face_areas) / len(face_areas))
     summary.total_processing_time_seconds = time.perf_counter() - run_started
+    
+    if face_areas:
+        summary.average_face_size_pixels = float(sum(face_areas) / len(face_areas))
 
-    if summary.skipped_resumed:
-        summary.notes.append(f"Resumed run skipped {summary.skipped_resumed} already-processed samples.")
     if summary.failed_crops:
         summary.notes.append(f"Recorded {summary.failed_crops} failures in {config.failures_path.name}.")
     else:
@@ -766,6 +991,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--project-root", type=Path, default=None)
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit processing to first N samples (debug mode).",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Report only, do not process.")
+    parser.add_argument("--batch-size", type=int, default=1000, help="Registry flush interval.")
     return parser.parse_args(argv)
 
 
@@ -781,12 +1014,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     config_path = (args.config or project_root / "configs" / "image_preprocessing.yaml").resolve()
     config = load_preprocess_config(config_path, project_root)
 
-    logger.info("Starting preprocessing v%s with detector=%s", config.version, config.detector_name)
+    if args.limit is not None:
+        config.max_images = args.limit
+        logger.warning("DEBUG MODE: limiting to %d samples", args.limit)
+        
+    config.dry_run = args.dry_run
+    config.batch_size = args.batch_size
+
+    logger.info("Starting preprocessing v%s with detector=%s", config.preprocessing_version, config.detector_name)
     logger.info("Manifest: %s", config.manifest_path)
     summary = run_preprocessing(config)
 
+    mode_note = " (DEBUG MODE)" if args.limit is not None else ""
     print(
-        "\nPreprocessing complete.\n"
+        f"\nPreprocessing complete.{mode_note}\n"
         f"Total images: {summary.total_images}\n"
         f"Skipped (resumed): {summary.skipped_resumed}\n"
         f"Processed this run: {summary.processed_this_run}\n"

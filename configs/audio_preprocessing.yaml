@@ -1,0 +1,54 @@
+# AEGIS audio preprocessing pipeline configuration.
+#
+# Produces mel-spectrogram or wav2vec2 features from raw audio clips without
+# modifying source files. Outputs are stored as .npy files organized by generator.
+
+version: "1.0.0"
+
+# Preprocessing mode: "mel_spectrogram" or "wav2vec2"
+mode: mel_spectrogram
+
+manifest_path: data/processed/audio/manifest.csv
+project_root: null
+
+# Audio processing parameters
+audio:
+  sample_rate: 16000
+  max_duration_sec: 6.0  # Clip audio longer than this
+  
+# Mel-spectrogram parameters (used when mode: mel_spectrogram)
+mel_spectrogram:
+  n_mels: 128
+  win_length_ms: 25
+  hop_length_ms: 10
+  n_fft: 512  # Will be calculated from win_length if not specified
+  fmin: 0
+  fmax: 8000  # Half of sample_rate
+
+# Wav2vec2 parameters (used when mode: wav2vec2)
+wav2vec2:
+  model_name: facebook/wav2vec2-base
+  freeze_encoder: true  # Run inference only, no gradients
+  layer: -1  # Which layer to extract (-1 = last hidden state)
+
+output:
+  # Output paths are mode-specific:
+  # mel_spectrogram: data/processed/audio/mel/<generator>/<clip_id>.npy
+  # wav2vec2: data/processed/audio/wav2vec2/<generator>/<clip_id>.npy
+  base_dir: data/processed/audio
+  metadata_path: data/processed/audio/preprocessing/metadata.csv
+
+summary_path: reports/audio/preprocessing_summary.json
+failures_path: reports/audio/preprocessing_failures.csv
+
+processing:
+  log_every: 500
+  resume: true  # Skip already-processed clips
+  retry_failures: true  # Retry previously failed clips
+  max_clips: null  # Limit for testing (null = process all)
+  batch_size: 8  # For wav2vec2 batch inference
+
+validation:
+  allowed_extensions: [".flac", ".wav"]
+  min_duration_sec: 0.5
+  max_raw_duration_sec: 30.0  # Reject extremely long files

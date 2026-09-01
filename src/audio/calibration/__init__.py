@@ -1,1 +1,1 @@
-﻿"""Audio confidence calibration."""
+"""AEGIS Audio Confidence Calibration package."""

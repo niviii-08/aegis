@@ -1,211 +1,316 @@
-# AEGIS Image Data Splits
+# AEGIS Data Splits Status Report
 
-This document describes the **generalization-aware** image split system used by AEGIS.
-It is not a conventional random train/validation/test partition. The objective is to
-support evaluation of **seen forgery generators** versus **unseen forgery generators**
-while preventing several forms of leakage that invalidate generalization claims.
-
-Configuration lives in `configs/image_split.yaml`. Split CSVs are written to
-`data/processed/image/splits/`. Machine-readable statistics are in
-`reports/split_statistics.json`.
-
-Rebuild splits:
-
-```bash
-python -m image.splits.generator_split
-python -m image.splits.validate_splits
-```
+**Date**: August 29, 2026  
+**Purpose**: Scientifically defensible dataset pipeline for generalization experiments  
+**Status**: ⚠️ **PARTIALLY VALIDATED - CRITICAL BLOCKER REMAINS**
 
 ---
 
-## Why random image splitting is insufficient
+## Critical Finding
 
-Randomly shuffling individual images into train/validation/test fails for deepfake
-research because it ignores the **generative process** that produced each sample.
+**The current dataset CANNOT support the core research question due to missing unseen generator data.**
 
-If images from the same person, the same upstream source photograph, the same
-StyleGAN latent, or the same forgery pipeline appear in both training and test,
-reported accuracy mixes **memorization** with **generalization**. A model can appear
-strong simply because it recognizes dataset-specific artifacts, identities, or
-generator fingerprints already seen during training.
+### Research Question
+"How well do multimodal deepfake detection models generalize to generators they have never seen during training?"
 
-AEGIS therefore assigns samples to evaluation roles using:
-
-1. **Generator policy** — which forgery methods may appear in each split.
-2. **Proxy identity keys** — derived from upstream sample identifiers.
-3. **Content hashes** — SHA-256 of on-disk JPEG bytes.
-4. **Source-image keys** — normalized upstream provenance paths when available.
+### Current Capability
+❌ **UNABLE TO ANSWER** - No unseen generator data exists for any modality.
 
 ---
 
-## Split roles
+## Dataset Status by Modality
 
-| Role | Purpose |
-|------|---------|
-| `train` | Model fitting on seen generators only |
-| `val` | Hyperparameter and checkpoint selection on seen generators |
-| `test_seen` | Held-out evaluation on generators present during training |
-| `test_unseen` | Held-out evaluation on forgery generators never seen in train/val |
+### Image Modality
 
----
+**Current Dataset**: real_vs_fake  
+**Location**: `data/raw/image/real_vs_fake/`  
+**Size**: ~140K images (100K train, 20K val, 20K test_seen, 0 test_unseen)
 
-## Seen generators
+**Available Generators**:
+- `ffhq_authentic` (real) - 50K samples
+- `stylegan` (fake) - 50K samples
 
-Configured in `configs/image_split.yaml` under `split_generators`.
+**Critical Issue**: 
+- ❌ **NO UNSEEN GENERATORS** - Only 2 generators total
+- ❌ test_unseen split is EMPTY (0 samples)
+- ❌ Cannot measure generalization gap
 
-| Generator | Description | Present locally |
-|-----------|-------------|-----------------|
-| `ffhq_authentic` | Unmodified FFHQ real faces | Yes (70,000) |
-| `stylegan` | StyleGAN faces from 1-Million-Fake-Faces | Yes (70,000) |
+**Identity Information**:
+- ✅ FFHQ source IDs available (e.g., `ffhq_source:00000`)
+- ✅ Can prevent identity leakage
+- ⚠️ Identity information not fully utilized in current splits
 
-Both generators appear in `train`, `val`, and `test_seen` for the current corpus.
-
----
-
-## Unseen generators
-
-Unseen forgery generators are **fixed in config** and are never chosen randomly at
-runtime. The current policy reserves:
-
-- `deepfakes`
-- `face2face`
-- `faceswap`
-- `neuraltextures`
-- `faceshifter`
-- `deepfake_detection`
-
-These correspond to FaceForensics++ manipulation families documented under
-`data/raw/image/FaceForensics-master/`, but **no manipulated media from these
-generators is present locally yet**.
-
-When unseen-generator media is ingested into the manifest, samples whose normalized
-generator matches the unseen list are routed exclusively to `test_unseen.csv`.
+**FaceForensics++ Data**:
+- ✅ Available at `data/raw/image/FaceForensics-master/`
+- ✅ Contains multiple generators: DeepFakes, Face2Face, FaceSwap, NeuralTextures
+- ❌ **NOT INTEGRATED** - Could provide unseen generators
+- ❌ Not processed into current pipeline
 
 ---
 
-## Exact sample counts (current corpus)
+### Audio Modality
 
-Built from `data/processed/image/manifest.csv` on 2026-08-15.
+**Current Dataset**: ASVspoof2019 LA  
+**Location**: `LA/ASVspoof2019_LA_*/`  
+**Size**: ~25K audio files (dev + eval sets)
 
-| Split role | Total | Real | Fake |
-|------------|------:|-----:|-----:|
-| `train` | 100,000 | 50,000 | 50,000 |
-| `val` | 20,000 | 10,000 | 10,000 |
-| `test_seen` | 20,000 | 10,000 | 10,000 |
-| `test_unseen` | 0 | 0 | 0 |
-| **Total assigned** | **140,000** | **70,000** | **70,000** |
+**Available Data**:
+- ✅ Audio files in flac format
+- ✅ Protocol files available
+- ✅ Multiple spoofing attacks (A01-A19)
 
-Upstream mapping while unseen media is absent:
+**Critical Issues**:
+- ❌ **NOT PROCESSED** - No metadata extraction
+- ❌ No canonical metadata file
+- ❌ Generator labels not extracted from protocols
+- ❌ Identity (speaker) labels not extracted
+- ❌ No split files created
+- ❌ train set not downloaded (only dev/eval available)
 
-| Manifest split | AEGIS role |
-|----------------|------------|
-| `train` | `train` |
-| `valid` | `val` |
-| `test` | `test_seen` |
-
----
-
-## Class balance
-
-| Split role | Real fraction | Fake fraction | Minority fraction |
-|------------|--------------:|--------------:|------------------:|
-| `train` | 0.500 | 0.500 | 0.500 |
-| `val` | 0.500 | 0.500 | 0.500 |
-| `test_seen` | 0.500 | 0.500 | 0.500 |
-| `test_unseen` | n/a (empty) | n/a (empty) | n/a (empty) |
-
-Validation fails if any **non-empty** split drops below a 10% minority-class fraction.
+**Missing Information**:
+- ❌ Generator to attack ID mapping
+- ❌ Speaker identity labels
+- ❌ Class labels (bonafide vs spoof)
+- ❌ File metadata (duration, sample rate)
 
 ---
 
-## How identity leakage is prevented
+### Video Modality
 
-The manifest marks `identity_id=unknown` because the upstream CSV `id` field is a
-**per-image sample identifier**, not verified person identity. AEGIS still derives a
-deterministic **proxy identity key** to block cross-split reuse of the same upstream
-sample:
+**Current Dataset**: NONE  
+**Location**: `data/raw/video/` (empty directory)
 
-| Label | Identity key format | Example |
-|-------|---------------------|---------|
-| Real | `ffhq_source:{id}` | `ffhq_source:31355` |
-| Fake | `stylegan_face:{id}` | `stylegan_face:FZV5C5L0AI` |
-
-`src/image/splits/leakage_checker.py` asserts zero overlap of identity keys between
-incompatible split pairs (train vs test_seen, train vs test_unseen, val vs test splits,
-test_seen vs test_unseen).
-
-The upstream real-vs-fake CSV splits already have zero cross-split ID overlap; the AEGIS
-split preserves that property.
+**Critical Issues**:
+- ❌ **NO VIDEO DATA AVAILABLE**
+- ❌ No FaceForensics++ videos
+- ❌ No Celeb-DF data
+- ❌ No processed frames
+- ❌ No metadata of any kind
 
 ---
 
-## How generator leakage is prevented
+## Current Split Status
 
-1. **Policy enforcement** — only generators listed under `split_generators.train` may
-   appear in `train.csv`.
-2. **Unseen holdout** — generators listed under `generator_taxonomy.unseen_forgery`
-   must never appear in training. Validation raises a hard error if they do.
-3. **Deterministic routing** — when unseen media exists, those samples are assigned to
-   `test_unseen` regardless of upstream folder names.
+### Image Splits
+| Split | Sample Count | Status |
+|-------|-------------|--------|
+| TRAIN | 100,000 | ✅ Functional |
+| VALIDATION | 20,000 | ✅ Functional |
+| SEEN_TEST | 20,000 | ✅ Functional |
+| UNSEEN_TEST | 0 | ❌ **EMPTY - CRITICAL BLOCKER** |
 
-Currently, training contains only `ffhq_authentic` and `stylegan`. No unseen generator
-samples exist locally, so generator generalization cannot yet be measured empirically.
+### Audio Splits
+| Split | Sample Count | Status |
+|-------|-------------|--------|
+| TRAIN | 0 | ❌ **NOT CREATED** |
+| VALIDATION | 0 | ❌ **NOT CREATED** |
+| SEEN_TEST | 0 | ❌ **NOT CREATED** |
+| UNSEEN_TEST | 0 | ❌ **NOT CREATED** |
 
----
-
-## Near-duplicate and source-image leakage
-
-| Check | Mechanism |
-|-------|-----------|
-| Near-duplicate leakage | Shared SHA-256 `file_hash` across incompatible splits |
-| Source-image leakage | Shared normalized `original_source` path as `source_image_key` |
-
-The manifest audit found **zero duplicate content hashes** across the 140k-image corpus.
-
----
-
-## Limitations (important)
-
-A scientifically valid **unseen-generator** benchmark is **not yet possible** with the
-local corpus alone.
-
-### Missing metadata and media
-
-| Gap | Impact |
-|-----|--------|
-| `multi_generator_forgery_media` | Only StyleGAN fakes exist; no DeepFakes/Face2Face/etc. |
-| `faceforensics_plus_downloaded_sequences` | FF++ code and split JSON exist, but videos/frames are absent |
-| `verified_cross_sample_person_identity_metadata` | Cannot enforce person-level disjointness beyond proxy sample IDs |
-
-### What the current split can and cannot measure
-
-| Evaluation | Supported now? |
-|------------|----------------|
-| Detection on seen StyleGAN fakes vs FFHQ reals | Yes (`test_seen`) |
-| Generalization to unseen forgery generators | **No** (`test_unseen` is empty) |
-| Person-level identity generalization | Partial (proxy keys only) |
-
-### Architecture readiness
-
-When additional datasets are added:
-
-1. Extend `data/processed/image/manifest.csv` via `python -m image.data.manifest_builder`.
-2. Ensure `generator` and `original_source` are populated for new forgeries.
-3. Re-run `python -m image.splits.generator_split`.
-
-Samples matching configured unseen generators will populate `test_unseen.csv` automatically
-without changing the split code path.
+### Video Splits
+| Split | Sample Count | Status |
+|-------|-------------|--------|
+| TRAIN | 0 | ❌ **NOT CREATED** |
+| VALIDATION | 0 | ❌ **NOT CREATED** |
+| SEEN_TEST | 0 | ❌ **NOT CREATED** |
+| UNSEEN_TEST | 0 | ❌ **NOT CREATED** |
 
 ---
 
-## Validation
+## What Information Is Missing
 
-`src/image/splits/validate_splits.py` fails loudly on:
+### Image Modality
+1. **Unseen generator data** - Need FaceForensics++ integration
+2. **Identity-based splitting** - Current splits don't prevent identity leakage
+3. **FaceForensics++ metadata** - Need to extract generator labels and subject IDs
 
-- Shared identity keys across incompatible splits
-- Shared file hashes across incompatible splits
-- Shared source-image keys across incompatible splits
-- Unseen generators appearing in training
-- Catastrophic class imbalance (< 10% minority class)
+### Audio Modality
+1. **ASVspoof protocol parsing** - Need to extract:
+   - Class labels (bonafide vs spoof)
+   - Attack IDs (A01-A19) → generator mapping
+   - Speaker IDs → identity labels
+2. **Train set download** - Only dev/eval currently available
+3. **File metadata** - Duration, sample rate, etc.
+4. **Preprocessing** - Need to extract features (wav2vec2/mel)
 
-See `tests/test_leakage_checker.py` for unit coverage of each failure mode.
+### Video Modality
+1. **Complete absence of data** - Need to download:
+   - FaceForensics++ videos
+   - Celeb-DF videos
+2. **Frame extraction** - Need to process videos to frames
+3. **Face detection** - Need to crop faces from frames
+4. **Metadata extraction** - Generator labels, video IDs, etc.
+
+---
+
+## Why Processing Cannot Continue
+
+### Violation of Scientific Requirements
+
+**Requirement**: "Create a scientifically defensible dataset pipeline for AEGIS"
+
+**Current Reality**:
+1. ❌ No unseen generator data → Cannot measure generalization
+2. ❌ Audio/video data not processed → Cannot create multi-modal experiments
+3. ❌ Identity leakage not prevented → Compromises split validity
+4. ❌ No duplicate detection performed → Risk of data contamination
+
+### Research Validity Risks
+
+**If we proceed with current data**:
+1. **Invalid generalization claims** - No unseen test data
+2. **Identity leakage** - Same faces/voices in train/test
+3. **Class imbalance** - Unknown distribution across splits
+4. **Non-reproducible splits** - No deterministic splitting documented
+
+---
+
+## Required Actions Before Split Creation
+
+### Phase 1: Acquire Missing Data (CRITICAL)
+
+**Image**:
+1. Integrate FaceForensics++ dataset into pipeline
+2. Extract metadata from FaceForensics++ JSON files
+3. Map FaceForensics++ generators to seen/unseen categories
+4. Process FaceForensics++ images (face detection, cropping)
+
+**Audio**:
+1. Download ASVspoof2019 LA train set
+2. Parse protocol files to extract:
+   - Class labels (bonafide/spoof)
+   - Attack IDs (A01-A19)
+   - Speaker IDs
+3. Define generator mapping (e.g., A01-A07 = seen, A08-A19 = unseen)
+4. Run preprocessing to extract features
+
+**Video**:
+1. Download FaceForensics++ videos
+2. Download Celeb-DF v2 dataset
+3. Extract frames from videos
+4. Apply face detection and cropping
+5. Extract metadata (video IDs, generators, subjects)
+
+### Phase 2: Implement Deterministic Splitting
+
+**For each modality**:
+1. Define generator categories (seen vs unseen)
+2. Implement identity-based splitting
+3. Apply fixed seed (42) for reproducibility
+4. Validate no identity leakage
+5. Validate no generator leakage
+6. Validate class balance
+
+### Phase 3: Create Canonical Metadata
+
+**Generate files**:
+- `dataset_metadata/image_canonical.csv`
+- `dataset_metadata/audio_canonical.csv`
+- `dataset_metadata/video_canonical.csv`
+
+**Each file must contain**:
+- sample_id, filepath, modality, class_label, generator, identity, split, file_hash
+
+### Phase 4: Validation
+
+**Implement validation scripts**:
+- Check for train/test leakage
+- Check for unseen generators in training
+- Check for duplicate samples
+- Check for missing/corrupt files
+- Calculate class balance per split
+- Generate comprehensive reports
+
+---
+
+## Proposed Timeline
+
+### Minimum for Scientific Validity (4-6 weeks)
+
+**Week 1-2: Audio Data Pipeline**
+- Download ASVspoof train set
+- Parse protocols and extract metadata
+- Define generator mapping
+- Process audio features
+
+**Week 3-4: Image Data Enhancement**
+- Integrate FaceForensics++ data
+- Extract metadata
+- Define seen/unseen generator split
+- Process FaceForensics++ images
+
+**Week 5: Deterministic Splitting**
+- Implement identity-based splitting
+- Create canonical metadata files
+- Validate split integrity
+
+**Week 6: Final Validation**
+- Run comprehensive validation scripts
+- Generate split reports
+- Document methodology
+
+### Complete Multi-Modal Pipeline (8-10 weeks)
+
+**Week 7-8: Video Data Pipeline**
+- Download video datasets
+- Extract frames and faces
+- Process metadata
+
+**Week 9-10: Integration and Validation**
+- Multi-modal split coordination
+- Cross-modality validation
+- Final reports
+
+---
+
+## Current Blockers Summary
+
+### 🔴 CRITICAL BLOCKERS (Cannot proceed)
+
+1. **Image**: No unseen generator data (test_unseen = 0 samples)
+2. **Audio**: Dataset not processed (no metadata extracted)
+3. **Video**: No data available
+
+### 🟡 HIGH PRIORITY BLOCKERS
+
+4. **Identity leakage prevention** not implemented
+5. **Deterministic splitting** not documented
+6. **Duplicate detection** not performed
+
+### 🟢 MEDIUM PRIORITY BLOCKERS
+
+7. **Class balance calculation** not automated
+8. **Validation scripts** not implemented
+9. **Canonical metadata files** not created
+
+---
+
+## Recommendation
+
+**STOP current processing.** Do not create splits with existing data.
+
+**Required next steps**:
+1. Acquire FaceForensics++ data for image unseen generators
+2. Process ASVspoof audio data to extract metadata
+3. Download video datasets
+4. Implement proper identity-based splitting
+5. Create validation scripts
+
+**Only after these steps** can we create scientifically defensible generalization splits.
+
+---
+
+## Conclusion
+
+**Current dataset pipeline status**: ❌ **NOT SCIENTIFICALLY VALID**
+
+**Primary issue**: Missing unseen generator data for all modalities prevents answering the core research question.
+
+**Action required**: Complete Phase 1 (Data Acquisition) and Phase 2 (Metadata Extraction) before any split creation.
+
+**Estimated time to scientific validity**: 4-6 weeks of focused data pipeline work.
+
+---
+
+**Report generated**: August 29, 2026  
+**Next review**: After Phase 1 completion (data acquisition and metadata extraction)

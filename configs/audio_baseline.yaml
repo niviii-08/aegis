@@ -1,0 +1,76 @@
+# AEGIS audio baseline model configuration
+
+version: "1.0.0"
+
+split:
+  split_dir: data/processed/audio/splits
+  split_version: "1.0.0"
+  preprocessing_version: "1.0.0"
+  metadata_path: reports/audio/preprocessing_metadata_wav2vec2.csv
+
+data:
+  feature_mode: wav2vec2
+  num_workers: 0
+  pin_memory: false
+
+model:
+  model_type: "wav2vec2_cnn"
+  input_dim: 768
+  n_mels: 128
+  hidden_dim: 256
+  num_conv_layers: 3
+  num_conv_blocks: 4
+  kernel_size: 3
+  dropout: 0.3
+  pretrained_wav2vec2: false
+
+training:
+  seed: 42
+  batch_size: 32
+  epochs: 2
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-5
+  optimizer: adam
+  scheduler: cosine
+  scheduler_min_lr: 1.0e-6
+  early_stopping:
+    enabled: true
+    patience: 5
+    monitor: val_roc_auc
+    mode: max
+  mixed_precision: auto
+  class_weighting: auto
+  class_imbalance_threshold: 0.05
+
+evaluation:
+  threshold: 0.5
+  splits:
+    - val
+    - test_seen
+    - test_unseen
+
+outputs:
+  checkpoint_dir: models/audio
+  report_dir: reports/audio_baseline
+  results_path: results/audio_baseline.json
+
+logging:
+  experiment_name: aegis-audio-baseline
+  mlflow_tracking_uri: mlruns
+  use_mlflow: auto
+
+# Alternate configuration for mel-spectrogram model
+# (Uncomment to use mel_cnn instead)
+# model:
+#   model_type: "mel_cnn"
+#   n_mels: 128
+#   hidden_dim: 256
+#   num_conv_blocks: 4
+#   dropout: 0.3
+# 
+# data:
+#   feature_mode: "mel_spectrogram"
+# 
+# logging:
+#   experiment_name: "baseline_mel_cnn"
+

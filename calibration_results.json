@@ -1,0 +1,186 @@
+{
+  "experiment_info": {
+    "date": "2026-08-29",
+    "modality": "image",
+    "checkpoint": "models/image/baseline_best.pt",
+    "config": "configs/image_baseline.yaml",
+    "research_question": "Validate and integrate AEGIS uncertainty calibration using trained models and real test predictions"
+  },
+  "data_status": {
+    "val_split": {
+      "total_samples_in_csv": 20000,
+      "samples_with_metadata": 10,
+      "samples_evaluated": 10,
+      "status": "limited_data"
+    },
+    "test_seen_split": {
+      "total_samples_in_csv": 20000,
+      "samples_with_metadata": 10,
+      "samples_evaluated": 10,
+      "status": "limited_data"
+    },
+    "test_unseen_split": {
+      "total_samples_in_csv": 0,
+      "samples_with_metadata": 0,
+      "samples_evaluated": 0,
+      "status": "empty_split"
+    }
+  },
+  "calibration_fitting": {
+    "temperature": 1.0,
+    "fitted_on_split": "val",
+    "nll_before_calibration": null,
+    "nll_after_calibration": null,
+    "nll_reduction": null,
+    "converged": false,
+    "warning": "Calibration set has only one class - temperature scaling cannot be meaningfully fitted. Returning T=1.0.",
+    "n_calibration_samples": 10
+  },
+  "before_calibration_metrics": {
+    "val": {
+      "support": 10,
+      "ece": null,
+      "brier_score": null,
+      "nll": null,
+      "roc_auc": null,
+      "f1": null,
+      "note": "single_class_predictions",
+      "reliability_diagram": {
+        "bin_accs": [],
+        "bin_confs": [],
+        "bin_counts": [],
+        "n_bins": 10
+      }
+    },
+    "test_seen": {
+      "support": 10,
+      "ece": null,
+      "brier_score": null,
+      "nll": null,
+      "roc_auc": null,
+      "f1": null,
+      "note": "single_class_predictions",
+      "reliability_diagram": {
+        "bin_accs": [],
+        "bin_confs": [],
+        "bin_counts": [],
+        "n_bins": 10
+      }
+    },
+    "test_unseen": {
+      "support": 0,
+      "ece": null,
+      "brier_score": null,
+      "nll": null,
+      "roc_auc": null,
+      "f1": null,
+      "note": "empty_split",
+      "reliability_diagram": {
+        "bin_accs": [],
+        "bin_confs": [],
+        "bin_counts": [],
+        "n_bins": 10
+      }
+    }
+  },
+  "after_calibration_metrics": {
+    "val": {
+      "support": 10,
+      "ece": null,
+      "brier_score": null,
+      "nll": null,
+      "roc_auc": null,
+      "f1": null,
+      "note": "single_class_predictions_no_calibration_effect",
+      "reliability_diagram": {
+        "bin_accs": [],
+        "bin_confs": [],
+        "bin_counts": [],
+        "n_bins": 10
+      }
+    },
+    "test_seen": {
+      "support": 10,
+      "ece": null,
+      "brier_score": null,
+      "nll": null,
+      "roc_auc": null,
+      "f1": null,
+      "note": "single_class_predictions_no_calibration_effect",
+      "reliability_diagram": {
+        "bin_accs": [],
+        "bin_confs": [],
+        "bin_counts": [],
+        "n_bins": 10
+      }
+    },
+    "test_unseen": {
+      "support": 0,
+      "ece": null,
+      "brier_score": null,
+      "nll": null,
+      "roc_auc": null,
+      "f1": null,
+      "note": "empty_split",
+      "reliability_diagram": {
+        "bin_accs": [],
+        "bin_confs": [],
+        "bin_counts": [],
+        "n_bins": 10
+      }
+    }
+  },
+  "modality_status": {
+    "image": {
+      "trained_model_available": true,
+      "calibration_executed": true,
+      "data_available": true,
+      "unseen_generator_data": false,
+      "status": "partial_execution"
+    },
+    "video": {
+      "trained_model_available": false,
+      "calibration_executed": false,
+      "data_available": false,
+      "unseen_generator_data": false,
+      "status": "no_execution"
+    },
+    "audio": {
+      "trained_model_available": false,
+      "calibration_executed": false,
+      "data_available": false,
+      "unseen_generator_data": false,
+      "status": "no_execution"
+    }
+  },
+  "limitations": [
+    "Single class in validation set prevents meaningful temperature fitting",
+    "Only 10 samples available for evaluation (vs 20,000 in CSV)",
+    "Missing preprocessing metadata for 19,990 samples per split",
+    "test_unseen split completely empty - no unseen generator data",
+    "Cannot compute ECE, Brier score, or other calibration metrics without class diversity",
+    "Temperature scaling has no effect when T=1.0"
+  ],
+  "critical_blockers": [
+    "Missing unseen generator data for all modalities",
+    "Insufficient preprocessing metadata coverage (10/20,000 samples)",
+    "Single-class predictions prevent calibration assessment",
+    "No trained video or audio models available"
+  ],
+  "recommendations": [
+    "Complete preprocessing pipeline to generate metadata for all samples",
+    "Acquire unseen generator data for test_unseen splits",
+    "Train video and audio models to enable multi-modal calibration",
+    "Re-run calibration with sufficient class diversity",
+    "Implement Maximum Calibration Error (MCE) calculation",
+    "Add per-generator calibration analysis"
+  ],
+  "next_steps": [
+    "Process unseen generator data for image modality",
+    "Complete audio preprocessing pipeline",
+    "Complete video preprocessing pipeline",
+    "Train audio baseline model",
+    "Train video baseline model",
+    "Re-run calibration evaluation with complete data"
+  ]
+}

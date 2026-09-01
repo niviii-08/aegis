@@ -1,0 +1,111 @@
+{
+  "evaluated_at": "2026-09-01T07:25:20.601300+00:00",
+  "checkpoint_path": "C:\\Users\\Neevetha N\\Downloads\\AEGIS\\experiments\\baseline_preprocessed\\checkpoints\\baseline_best.pt",
+  "checkpoint_epoch": 1,
+  "configuration": {
+    "version": "1.0.0",
+    "config_path": "C:\\Users\\Neevetha N\\Downloads\\AEGIS\\experiments\\baseline_preprocessed\\config.yaml",
+    "split_dir": "C:\\Users\\Neevetha N\\Downloads\\AEGIS\\experiments\\baseline_preprocessed\\splits",
+    "metadata_path": "C:\\Users\\Neevetha N\\Downloads\\AEGIS\\data\\processed\\image\\preprocessing\\metadata.csv",
+    "split_version": "1.0.0",
+    "preprocessing_version": "1.0.0",
+    "input_source": "normalized_npy",
+    "model": {
+      "backbone": "efficientnet_b4",
+      "pretrained": true,
+      "dropout": 0.2,
+      "input_size": 224
+    },
+    "training": {
+      "seed": 42,
+      "batch_size": 4,
+      "epochs": 20,
+      "learning_rate": 0.0001,
+      "weight_decay": 1e-05,
+      "optimizer": "adamw",
+      "scheduler": "cosine",
+      "mixed_precision": "false",
+      "class_weighting": "false"
+    }
+  },
+  "git_commit": "179703b23edcfc57925fb04d67133e5ce75cd262",
+  "split_version": "1.0.0",
+  "preprocessing_version": "1.0.0",
+  "model_architecture": {
+    "backbone": "efficientnet_b4",
+    "pretrained": true,
+    "dropout": 0.2,
+    "input_size": 224,
+    "output": "single_logit_p_fake",
+    "label_convention": {
+      "fake": 1,
+      "real": 0
+    }
+  },
+  "random_seed": 42,
+  "eval_threshold": 0.5,
+  "splits": {
+    "val": {
+      "accuracy": 1.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "balanced_accuracy": 1.0,
+      "confusion_matrix": [
+        [
+          1,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "support": 1,
+      "threshold": 0.5,
+      "roc_auc": null,
+      "roc_auc_note": "undefined_single_class"
+    },
+    "test_seen": {
+      "accuracy": null,
+      "precision": null,
+      "recall": null,
+      "f1": null,
+      "roc_auc": null,
+      "balanced_accuracy": null,
+      "confusion_matrix": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "support": 0,
+      "note": "no_preprocessed_samples"
+    }
+  },
+  "generalization_gap": {
+    "metrics": {
+      "accuracy": null,
+      "precision": null,
+      "recall": null,
+      "f1": null,
+      "roc_auc": null,
+      "balanced_accuracy": null
+    },
+    "notes": [
+      "test_unseen is empty; generalization_gap is not computable."
+    ]
+  },
+  "metric_names": [
+    "accuracy",
+    "precision",
+    "recall",
+    "f1",
+    "roc_auc",
+    "balanced_accuracy"
+  ]
+}
