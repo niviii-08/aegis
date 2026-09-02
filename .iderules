@@ -1,0 +1,19 @@
+# Global Rules
+
+# Framework
+- This is a unknown project using unknown
+
+
+# Code Style
+- Named exports preferred
+- async/await (no .then())
+- Max function length: 50 lines
+
+# Security
+- Input validation on ALL inputs
+- No hardcoded secrets
+- No console.log in production
+
+# Forbidden
+- No eval() or Function()
+- No inline styles
