@@ -46,7 +46,8 @@ def load_split_csv(split_csv: Path, frames_root: Path) -> list[VideoSample]:
             if label_str not in LABEL_TO_INT:
                 continue
                 
-            frames_dir = frames_root / generator / video_id
+            # Frames are organized by video_id directly, not by generator subdirectory
+            frames_dir = frames_root / video_id
             # Only include videos that have successfully extracted frames
             if frames_dir.is_dir():
                 samples.append(
@@ -93,7 +94,7 @@ class VideoSequenceDataset(Dataset):
         sample = self.samples[idx]
         
         # Gather available frames
-        frame_paths = sorted(list(sample.frames_dir.glob("*.jpg")), key=lambda p: int(p.stem))
+        frame_paths = sorted(list(sample.frames_dir.glob("*.jpg")), key=lambda p: int(p.stem.split('_')[-1]))
         
         if not frame_paths:
             # Fallback to empty tensor (black frames) if a directory got corrupted
@@ -129,6 +130,7 @@ class VideoSequenceDataset(Dataset):
                 if self.color_jitter:
                     img = self.color_jitter(img)
                     
+            img = transforms.functional.resize(img, (224, 224))
             tensor = transforms.functional.to_tensor(img) # [C, H, W] scaled to 0-1
             tensor = self.normalize(tensor)
             frames_tensor.append(tensor)

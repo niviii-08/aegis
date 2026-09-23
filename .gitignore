@@ -19,6 +19,9 @@ archive (2)/
 # Generated outputs
 results/
 reports/
+ml/data/generated/
+ml/data/generated_test/
+ml/artifacts/
 
 # Model weights / checkpoints
 models/

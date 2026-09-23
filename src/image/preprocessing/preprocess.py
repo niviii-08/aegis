@@ -863,7 +863,32 @@ def run_preprocessing(config: PreprocessConfig) -> PreprocessSummary:
         # For efficiency, we write the full registry but only at checkpoint intervals
         registry_out = config.registry_path.with_suffix('.csv.tmp')
         registry_df.to_csv(registry_out, index=False)
-        os.replace(str(registry_out), str(config.registry_path))
+        
+        # Windows-safe file replacement: retry with exponential backoff
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                # On Windows, we need to handle the case where the file might be open
+                if config.registry_path.exists():
+                    # Try to remove the old file first
+                    try:
+                        config.registry_path.unlink()
+                    except PermissionError:
+                        if attempt < max_retries - 1:
+                            time.sleep(0.1 * (2 ** attempt))  # Exponential backoff
+                            continue
+                        else:
+                            raise
+                # Move the temp file to the final location
+                shutil.move(str(registry_out), str(config.registry_path))
+                break
+            except (PermissionError, OSError) as e:
+                if attempt < max_retries - 1:
+                    time.sleep(0.1 * (2 ** attempt))
+                else:
+                    logger.warning(f"Failed to replace registry after {max_retries} attempts: {e}")
+                    # Keep the temp file for manual recovery
+                    logger.warning(f"Registry update saved to {registry_out}")
 
     for index, row in enumerate(eligible_rows, start=1):
         sample_id = row["sample_id"]

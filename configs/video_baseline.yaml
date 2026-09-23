@@ -27,7 +27,7 @@ model:
 
 training:
   seed: 42
-  batch_size: 16
+  batch_size: 4
   epochs: 2
   learning_rate: 1.0e-4
   weight_decay: 1.0e-5

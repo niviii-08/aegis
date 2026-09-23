@@ -85,17 +85,32 @@ class AudioInferenceService(BaseInferenceService):
         return PlaceholderModel()
     
     def preprocess(self, file_path: Path) -> torch.Tensor:
-        """Preprocess audio file for model inference."""
+        """Preprocess audio file for model inference using librosa."""
         try:
-            # For now, return a placeholder tensor
-            # In production, this would use the audio preprocessing pipeline
-            # from src.audio.preprocessing.preprocess
+            import librosa
             
-            logger.warning("Audio preprocessing not fully implemented, using placeholder")
-            # Placeholder: return random tensor of expected shape
-            # Shape: [batch, channels, time_steps, mel_bins]
-            placeholder = torch.randn(1, 1, 128, 128).to(self.device)
-            return placeholder
+            # Match configs/audio_preprocessing.yaml parameters
+            # sr=16000 or 22050 (ASVspoof is 16k usually, training config uses what's in yaml)
+            y, sr = librosa.load(str(file_path), sr=16000)
+            
+            # Compute mel spectrogram
+            # Match typical params: n_mels=128, n_fft=400 (25ms), hop_length=160 (10ms)
+            mel_spec = librosa.feature.melspectrogram(
+                y=y, sr=sr, n_fft=400, hop_length=160, n_mels=128
+            )
+            mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+            
+            # Ensure fixed time dimension (e.g., crop/pad to 600 frames for 6s)
+            target_length = 600
+            if mel_spec_db.shape[1] < target_length:
+                pad_width = target_length - mel_spec_db.shape[1]
+                mel_spec_db = np.pad(mel_spec_db, ((0, 0), (0, pad_width)), mode='constant')
+            else:
+                mel_spec_db = mel_spec_db[:, :target_length]
+                
+            # Convert to tensor: shape [batch=1, channels=1, mels=128, time=600]
+            tensor = torch.from_numpy(mel_spec_db).float().unsqueeze(0).unsqueeze(0)
+            return tensor.to(self.device)
             
         except Exception as e:
             logger.error(f"Audio preprocessing failed: {e}")

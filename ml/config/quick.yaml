@@ -1,0 +1,88 @@
+seed: 42
+dataset_version: "test-1.0.0"
+
+paths:
+  data_dir: ml/data/generated_test
+  artifact_dir: ml/artifacts/forgotting_risk_test
+
+dataset:
+  n_users: 40
+  n_items: 20
+  n_days: 60
+  reviews_per_user_mean: 20
+  retention_horizon_days: 7
+  random_seed: 42
+
+splits:
+  train_frac: 0.70
+  val_frac: 0.15
+  test_frac: 0.15
+
+features:
+  numeric:
+    - interval_since_last_review_hours
+    - log_interval_since_last_review
+    - cumulative_reviews
+    - rolling_accuracy_5
+    - rolling_accuracy_10
+    - item_difficulty
+    - session_index
+    - hour_of_day_sin
+    - hour_of_day_cos
+    - day_of_week_sin
+    - day_of_week_cos
+  categorical:
+    - modality_tag
+  forbidden:
+    - will_forget
+    - user_id
+    - item_id
+    - event_timestamp
+    - next_review_timestamp
+    - future_recall_success
+    - label_horizon_end
+
+models:
+  baseline:
+    type: logistic_regression
+    params:
+      max_iter: 500
+      class_weight: balanced
+      C: 1.0
+  xgboost:
+    type: xgboost
+    params:
+      n_estimators: 30
+      max_depth: 4
+      learning_rate: 0.1
+      subsample: 0.9
+      colsample_bytree: 0.9
+      min_child_weight: 1
+      reg_lambda: 1.0
+      scale_pos_weight: auto
+      eval_metric: logloss
+      random_state: 42
+      n_jobs: 1
+
+training:
+  primary_model: xgboost
+  cv_folds: 3
+  use_time_series_cv: true
+  calibrate: true
+  calibration_method: sigmoid
+  quick_mode: true
+
+evaluation:
+  threshold: 0.5
+  metrics:
+    - accuracy
+    - precision
+    - recall
+    - f1
+    - roc_auc
+    - pr_auc
+
+shap:
+  enabled: false
+  max_background_samples: 50
+  individual_example_index: 0

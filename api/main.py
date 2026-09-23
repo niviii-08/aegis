@@ -21,6 +21,7 @@ from api.config import APISettings, setup_logging
 from api.services.image_service import ImageInferenceService
 from api.services.video_service import VideoInferenceService
 from api.services.audio_service import AudioInferenceService
+from api.services.forgetting_service import ForgettingInferenceService
 from api.utils.file_manager import FileManager, temporary_file
 from api.utils.validation import validate_file, get_max_size_for_modality
 
@@ -65,6 +66,22 @@ class ErrorResponse(BaseModel):
     """Error response."""
     error: str
     detail: str | None = None
+
+
+class ForgettingPredictRequest(BaseModel):
+    """Tabular features for forgetting-risk inference."""
+
+    features: dict[str, Any]
+
+
+class ForgettingPredictResponse(BaseModel):
+    """Forgetting-risk prediction response."""
+
+    will_forget: bool
+    forgetting_probability: float
+    threshold: float
+    model_version: str
+    feature_schema_version: str
 
 
 @asynccontextmanager
@@ -129,6 +146,16 @@ async def lifespan(app: FastAPI):
                     "status": f"load_failed: {str(e)}",
                 }
                 logger.error(f"Failed to load {modality} service: {e}")
+
+        try:
+            forgetting_service = ForgettingInferenceService()
+            services["forgetting"] = {
+                "service": forgetting_service,
+                "status": "loaded" if forgetting_service.available else "model_not_found",
+            }
+        except Exception as e:
+            services["forgetting"] = {"service": None, "status": f"load_failed: {e}"}
+            logger.error("Failed to load forgetting service: %s", e)
         
         # Cleanup old temp files on startup
         if file_manager:
@@ -175,6 +202,16 @@ async def get_models():
     """Get available models and their status."""
     models_info = {}
     for modality, service_info in services.items():
+        if modality == "forgetting":
+            svc = service_info.get("service")
+            info = svc.model_info() if svc else {"loaded": False}
+            models_info[modality] = {
+                "status": service_info["status"],
+                "model_type": "forgetting_risk_xgboost",
+                "version": info.get("model_version"),
+                "feature_schema_version": info.get("feature_schema_version"),
+            }
+            continue
         config = service_info["config"]
         models_info[modality] = {
             "status": service_info["status"],
@@ -376,6 +413,26 @@ async def predict_multimodal(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No valid input provided",
         )
+
+
+@app.post("/predict/forgetting", response_model=ForgettingPredictResponse)
+async def predict_forgetting(body: ForgettingPredictRequest):
+    """Predict forgetting risk from tabular behavioral features (pre-trained ML artifact)."""
+    forgetting_info = services.get("forgetting")
+    if not forgetting_info or forgetting_info.get("service") is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Forgetting model not loaded. Run: python -m ml.training.train",
+        )
+    service: ForgettingInferenceService = forgetting_info["service"]
+    try:
+        result = service.predict(body.features)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    return ForgettingPredictResponse(**result)
 
 
 # Exception handlers
