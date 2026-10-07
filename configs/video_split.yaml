@@ -14,34 +14,30 @@ generator_taxonomy:
     - FaceSwap
     - NeuralTextures
   unseen_forgery:
-    - celeb_df
+    - FaceShifter
 
 split_generators:
   train:
     - original
-    - youtube
     - Deepfakes
     - Face2Face
     - FaceSwap
     - NeuralTextures
   val:
     - original
-    - youtube
     - Deepfakes
     - Face2Face
     - FaceSwap
     - NeuralTextures
   test_seen:
     - original
-    - youtube
     - Deepfakes
     - Face2Face
     - FaceSwap
     - NeuralTextures
   test_unseen:
     - original
-    - youtube
-    - celeb_df
+    - FaceShifter
 
 validation:
   min_minority_class_fraction: 0.10

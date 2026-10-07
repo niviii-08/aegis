@@ -84,7 +84,7 @@ def build_manifest():
         writer.writeheader()
         writer.writerows(records)
     
-    print(f"✓ Wrote manifest: {manifest_path}")
+    print(f"Wrote manifest: {manifest_path}")
     print(f"  Total: {len(records)}")
     print(f"  Real: {sum(1 for r in records if r['label'] == 'real')}")
     print(f"  Fake: {sum(1 for r in records if r['label'] == 'fake')}")

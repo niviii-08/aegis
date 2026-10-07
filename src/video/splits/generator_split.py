@@ -122,32 +122,32 @@ def load_manifest_records(manifest_path: Path) -> list[SplitRecord]:
     return records
 
 
-def deterministic_split(video_id: str, train_pct=0.7, val_pct=0.15) -> str:
-    """Return train, val, or test_seen deterministically based on hashing video_id."""
-    digest = hashlib.md5(video_id.encode('utf-8')).hexdigest()
+def deterministic_split(identity_id: str, train_pct=0.7, val_pct=0.1, test_seen_pct=0.1) -> str:
+    """Return train, val, test_seen, or test_unseen deterministically based on hashing identity_id."""
+    digest = hashlib.md5(identity_id.encode('utf-8')).hexdigest()
     val = int(digest[:8], 16) / 0xFFFFFFFF
     if val < train_pct:
         return "train"
     elif val < train_pct + val_pct:
         return "val"
-    else:
+    elif val < train_pct + val_pct + test_seen_pct:
         return "test_seen"
+    else:
+        return "test_unseen"
 
 
 def assign_split_roles(records: Sequence[SplitRecord], config: SplitConfig) -> list[SplitRecord]:
     assigned: list[SplitRecord] = []
-    unseen_generators = set(config.unseen_generators)
 
     for record in records:
-        if record.generator in unseen_generators:
-            split_role = "test_unseen"
-        else:
-            split_role = deterministic_split(record.video_id)
-
+        split_role = deterministic_split(record.identity_id)
+        
         allowed_generators = set(config.split_generators.get(split_role, ()))
+        
+        # If the generator is not allowed in this identity's assigned split, skip it
         if record.generator not in allowed_generators:
-            logger.warning(f"Generator {record.generator} not expected in {split_role}.")
-
+            continue
+            
         assigned.append(
             SplitRecord(
                 video_id=record.video_id,

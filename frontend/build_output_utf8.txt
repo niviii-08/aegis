@@ -1,0 +1,7 @@
+﻿
+> aegis-dashboard@1.0.0 build
+> tsc && vite build
+
+[36mvite v8.3.1 [32mbuilding client environment for production...[36m[39m
+transforming...
+Γ£ô 1820 modules transformed.

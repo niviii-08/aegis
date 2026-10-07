@@ -6,7 +6,7 @@ split:
   split_dir: data/processed/audio/splits
   split_version: "1.0.0"
   preprocessing_version: "1.0.0"
-  metadata_path: reports/audio/preprocessing_metadata_mel_spectrogram.csv
+  metadata_path: data/processed/audio/preprocessing/metadata.csv
 
 data:
   feature_mode: mel_spectrogram

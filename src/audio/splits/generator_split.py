@@ -174,40 +174,33 @@ def assign_split_roles_speaker_based(
     records: Sequence[SplitRecord],
     config: SplitConfig,
 ) -> list[SplitRecord]:
-    """Assign each record to a split role, ensuring all clips from same speaker are together.
-    
-    Strategy:
-      1. Separate seen vs unseen generators
-      2. For unseen generators: all → test_unseen
-      3. For seen generators: group by speaker, assign entire speaker to train/val/test_seen
-    """
     unseen_generators = set(config.unseen_generators)
     assigned: list[SplitRecord] = []
     
-    # Separate seen and unseen
-    seen_records = [r for r in records if r.generator not in unseen_generators]
     unseen_records = [r for r in records if r.generator in unseen_generators]
+    seen_records = [r for r in records if r.generator not in unseen_generators]
     
-    # Unseen generators → test_unseen exclusively
-    for record in unseen_records:
-        assigned.append(
-            SplitRecord(
-                clip_id=record.clip_id,
-                file_path=record.file_path,
-                label=record.label,
-                speaker_id=record.speaker_id,
-                generator=record.generator,
-                file_hash=record.file_hash,
-                split_role="test_unseen",
-                dataset=record.dataset,
-                duration_sec=record.duration_sec,
+    unseen_speakers = {r.speaker_id for r in unseen_records if r.speaker_id and r.speaker_id != "unknown"}
+    
+    for record in records:
+        if record.generator in unseen_generators or record.speaker_id in unseen_speakers:
+            assigned.append(
+                SplitRecord(
+                    clip_id=record.clip_id,
+                    file_path=record.file_path,
+                    label=record.label,
+                    speaker_id=record.speaker_id,
+                    generator=record.generator,
+                    file_hash=record.file_hash,
+                    split_role="test_unseen",
+                    dataset=record.dataset,
+                    duration_sec=record.duration_sec,
+                )
             )
-        )
+            
+    pure_seen_records = [r for r in seen_records if r.speaker_id not in unseen_speakers]
+    by_speaker = group_clips_by_speaker(pure_seen_records)
     
-    # Seen generators → speaker-based split into train/val/test_seen
-    by_speaker = group_clips_by_speaker(seen_records)
-    
-    # Filter speakers with insufficient clips
     filtered_speakers = {
         spk: clips
         for spk, clips in by_speaker.items()
@@ -218,18 +211,12 @@ def assign_split_roles_speaker_based(
         logger.warning("No speakers meet minimum clip threshold")
         return assigned
     
-    # Sort speakers for deterministic assignment
     speaker_ids = sorted(filtered_speakers.keys())
     
-    # Assign speakers to splits based on target ratios
-    # Use a deterministic hash-based assignment for reproducibility
-    train_speakers = []
-    val_speakers = []
-    test_seen_speakers = []
-    
+    train_speakers, val_speakers, test_seen_speakers = [], [], []
+    import hashlib
     for speaker_id in speaker_ids:
-        # Use hash for deterministic random assignment
-        speaker_hash = hash(speaker_id)
+        speaker_hash = int(hashlib.md5(speaker_id.encode('utf-8')).hexdigest(), 16)
         roll = (speaker_hash % 100) / 100.0
         
         if roll < config.target_ratios["train"]:
@@ -238,19 +225,14 @@ def assign_split_roles_speaker_based(
             val_speakers.append(speaker_id)
         else:
             test_seen_speakers.append(speaker_id)
-    
-    # Build speaker→split mapping
+            
     speaker_to_split = {}
-    for spk in train_speakers:
-        speaker_to_split[spk] = "train"
-    for spk in val_speakers:
-        speaker_to_split[spk] = "val"
-    for spk in test_seen_speakers:
-        speaker_to_split[spk] = "test_seen"
+    for spk in train_speakers: speaker_to_split[spk] = "train"
+    for spk in val_speakers: speaker_to_split[spk] = "val"
+    for spk in test_seen_speakers: speaker_to_split[spk] = "test_seen"
     
-    # Assign all clips from each speaker to their split
-    for record in seen_records:
-        split_role = speaker_to_split.get(record.speaker_id, "train")  # Default to train if not filtered
+    for record in pure_seen_records:
+        split_role = speaker_to_split.get(record.speaker_id, "train")
         assigned.append(
             SplitRecord(
                 clip_id=record.clip_id,
@@ -264,7 +246,6 @@ def assign_split_roles_speaker_based(
                 duration_sec=record.duration_sec,
             )
         )
-    
     return assigned
 
 

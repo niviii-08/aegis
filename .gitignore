@@ -62,3 +62,20 @@ FaceForensics-master/
 FaceForensics++_C23/
 archive (1)/
 archive (2)/
+
+
+# Large datasets
+dataset_metadata/
+experiments/*/splits/*.csv
+real-vs-fake/
+
+# ML datasets
+*.csv
+*.parquet
+*.pkl
+*.joblib
+
+# Python virtual environments / installed packages
+venv/
+.venv/
+__pycache__/

@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { apiClient, PredictionResponse } from '@/lib/api'
-import { Upload, Layers, X, AlertCircle, CheckCircle, Clock, Image as ImageIcon, Video, Mic } from 'lucide-react'
+import { Layers, X, AlertCircle, CheckCircle, Clock, Image as ImageIcon, Video, Mic } from 'lucide-react'
 import { formatProbability, formatLatency } from '@/lib/utils'
 
 export default function MultimodalDetection() {

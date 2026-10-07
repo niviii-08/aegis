@@ -97,7 +97,7 @@ class BaseInferenceService(ABC):
             "probability": round(probability, 6),
             "calibrated_probability": round(probability, 6) if not self.calibrated else round(probability, 6),
             "modality": self.modality,
-            "model_version": self.model_metadata.get("version", "unknown"),
+            "model_version": str(self.model_metadata.get("version", "unknown")),
             "inference_latency_ms": round(inference_time_ms, 2),
             "calibrated": self.calibrated,
             "temperature": round(self.temperature, 6) if self.calibrated else None,

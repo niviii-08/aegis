@@ -14,7 +14,7 @@ import numpy as np
 import torch
 import yaml
 
-from image.data_audit import find_project_root
+from video.data_audit import find_project_root
 
 logger = logging.getLogger(__name__)
 

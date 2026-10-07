@@ -1,5 +1,8 @@
-export function cn(...classes: (string | boolean | undefined)[]) {
-  return classes.filter(Boolean).join(' ')
+import { type ClassValue, clsx } from 'clsx'
+import { twMerge } from 'tailwind-merge'
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
 }
 
 export function formatProbability(prob: number): string {
@@ -21,15 +24,15 @@ export function getStatusColor(status: string): string {
   switch (status.toLowerCase()) {
     case 'healthy':
     case 'loaded':
-      return 'text-green-600'
+      return 'text-emerald-400'
     case 'unhealthy':
     case 'load_failed':
-      return 'text-red-600'
+      return 'text-rose-400'
     case 'warning':
     case 'checkpoint_not_found':
-      return 'text-yellow-600'
+      return 'text-amber-400'
     default:
-      return 'text-gray-600'
+      return 'text-gray-400'
   }
 }
 
@@ -45,6 +48,6 @@ export function getStatusBadge(status: string): string {
     case 'checkpoint_not_found':
       return 'status-warning'
     default:
-      return 'bg-gray-100 text-gray-800'
+      return 'bg-gray-800/80 text-gray-300 border-gray-700/50 border'
   }
 }

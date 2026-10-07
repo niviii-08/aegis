@@ -14,16 +14,10 @@ import numpy as np
 import torch
 import yaml
 
-def find_project_root() -> Path:
-    current = Path.cwd()
-    while current != current.parent:
-        if (current / "src").is_dir():
-            return current
-        current = current.parent
-    raise FileNotFoundError("Could not locate project root")
+from audio.data_audit import find_project_root
+from audio.models.baseline import AudioBaselineConfig as BaselineConfig
 
 logger = logging.getLogger(__name__)
-
 
 
 @dataclass(frozen=True)

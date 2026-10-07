@@ -1,0 +1,135 @@
+﻿docker-compose : time="2
+026-10-07T02:31:56+05:30
+" level=warning msg="C:\
+\Users\\Neevetha N\\Down
+loads\\AEGIS\\docker-com
+pose.yml: the attribute 
+`version` is obsolete, 
+it will be ignored, 
+please remove it to 
+avoid potential 
+confusion"
+At line:1 char:1
++ docker-compose build 
+frontend > 
+build_logs.txt 2>&1
++ ~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~
+    + CategoryInfo      
+        : NotSpecified  
+  : (time="2026-10-0.   
+ ..tial confusion":S    
+tring) [], RemoteEx    
+ception
+    + FullyQualifiedErr 
+   orId : NativeComman  
+  dError
+ 
+ Image aegis-api 
+Building 
+ Image aegis-frontend 
+Building 
+#1 [internal] load local bake definitions
+#1 reading from stdin 961B done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile.frontend
+#2 transferring dockerfile: 349B 0.0s done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:18-alpine
+#3 ...
+
+#4 [internal] load metadata for docker.io/library/nginx:alpine
+#4 DONE 1.2s
+
+#3 [internal] load metadata for docker.io/library/node:18-alpine
+#3 DONE 1.2s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 2B done
+#5 DONE 0.0s
+
+#6 [internal] load build context
+#6 DONE 0.0s
+
+#7 [stage-1 1/2] FROM docker.io/library/nginx:alpine@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2
+#7 resolve docker.io/library/nginx:alpine@sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2 0.0s done
+#7 CACHED
+
+#8 [build 1/6] FROM docker.io/library/node:18-alpine@sha256:8d6421d663b4c28fd3ebc498332f249011d118945588d0a35cb9bc4b8ca09d9e
+#8 resolve docker.io/library/node:18-alpine@sha256:8d6421d663b4c28fd3ebc498332f249011d118945588d0a35cb9bc4b8ca09d9e 0.0s done
+#8 DONE 0.1s
+
+#6 [internal] load build context
+#6 transferring context: 63.45MB 4.9s
+#6 transferring context: 130.95MB 8.7s done
+#6 DONE 8.8s
+
+#9 [build 3/6] COPY frontend/package*.json ./
+#9 CACHED
+
+#10 [build 4/6] RUN npm install
+#10 CACHED
+
+#11 [build 2/6] WORKDIR /app
+#11 CACHED
+
+#12 [build 5/6] COPY frontend/ ./
+#12 CACHED
+
+#13 [build 6/6] RUN npm run build
+#13 0.503 
+#13 0.503 > aegis-dashboard@1.0.0 build
+#13 0.503 > tsc && vite build
+#13 0.503 
+#13 4.555 file:///app/node_modules/rolldown/dist/shared/create-bundler-option-YGKfBl_D.mjs:8
+#13 4.555 import { formatWithOptions, styleText } from "node:util";
+#13 4.555                             ^^^^^^^^^
+#13 4.555 SyntaxError: The requested module 'node:util' does not provide an export named 'styleText'
+#13 4.555     at ModuleJob._instantiate (node:internal/modules/esm/module_job:123:21)
+#13 4.555     at async ModuleJob.run (node:internal/modules/esm/module_job:191:5)
+#13 4.555     at async ModuleLoader.import (node:internal/modules/esm/loader:337:24)
+#13 4.555 
+#13 4.555 Node.js v18.20.8
+#13 ERROR: process "/bin/sh -c npm run build" did not complete successfully: exit code: 1
+------
+ > [build 6/6] RUN npm run build:
+0.503 
+4.555 file:///app/node_modules/rolldown/dist/shared/create-bundler-option-YGKfBl_D.mjs:8
+4.555 import { formatWithOptions, styleText } from "node:util";
+4.555                             ^^^^^^^^^
+4.555 SyntaxError: The requested module 'node:util' does not provide an export named 'styleText'
+4.555     at ModuleJob._instantiate (node:internal/modules/esm/module_job:123:21)
+4.555     at async ModuleJob.run (node:internal/modules/esm/module_job:191:5)
+4.555     at async ModuleLoader.import (node:internal/modules/esm/loader:337:24)
+4.555 
+4.555 Node.js v18.20.8
+------
+Dockerfile.frontend:11
+
+--------------------
+
+   9 |     # Build 
+frontend
+
+  10 |     COPY 
+frontend/ ./
+
+  11 | >>> RUN npm run 
+build
+
+  12 |     
+
+  13 |     # Serve with 
+nginx
+
+--------------------
+
+failed to solve: 
+process "/bin/sh -c npm 
+run build" did not 
+complete successfully: 
+exit code: 1
+

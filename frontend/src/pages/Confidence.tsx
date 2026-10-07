@@ -211,8 +211,8 @@ export default function Confidence() {
                 scalar T before applying sigmoid: P_calibrated = sigmoid(z / T)
               </p>
               <ul className="text-sm text-gray-600 space-y-1">
-                <li>• T > 1: Softens distribution (model was overconfident)</li>
-                <li>• T < 1: Sharpens distribution (model was underconfident)</li>
+                <li>• T &gt; 1: Softens distribution (model was overconfident)</li>
+                <li>• T &lt; 1: Sharpens distribution (model was underconfident)</li>
                 <li>• T = 1: No calibration applied</li>
               </ul>
             </div>

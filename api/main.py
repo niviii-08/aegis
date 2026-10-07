@@ -10,10 +10,12 @@ from typing import Any
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, status
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import numpy as np
 
 # Add src to path for imports
-SRC_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
@@ -51,6 +53,8 @@ class ModelsResponse(BaseModel):
 
 class PredictionResponse(BaseModel):
     """Prediction response."""
+    model_config = {"protected_namespaces": ()}
+
     prediction: str
     probability: float
     calibrated_probability: float
@@ -70,12 +74,12 @@ class ErrorResponse(BaseModel):
 
 class ForgettingPredictRequest(BaseModel):
     """Tabular features for forgetting-risk inference."""
-
     features: dict[str, Any]
 
 
 class ForgettingPredictResponse(BaseModel):
     """Forgetting-risk prediction response."""
+    model_config = {"protected_namespaces": ()}
 
     will_forget: bool
     forgetting_probability: float
@@ -182,6 +186,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
@@ -228,17 +241,8 @@ async def get_models():
 async def predict_image(file: UploadFile = File(...)):
     """Predict deepfake for image input."""
     modality = "image"
-    service_info = services.get(modality)
-    
-    if not service_info or service_info["service"] is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"{modality} service not available: {service_info['status'] if service_info else 'not initialized'}",
-        )
-    
-    service = service_info["service"]
-    
-    # Validate and save uploaded file
+
+    # Validate file early so invalid uploads always return 400 regardless of service state
     try:
         content = await file.read()
         max_size = get_max_size_for_modality(modality, {
@@ -246,28 +250,33 @@ async def predict_image(file: UploadFile = File(...)):
             "video": settings.max_video_size,
             "audio": settings.max_audio_size,
         })
-        
+
         with temporary_file(file_manager, content, file.filename) as temp_path:
-            # Validate file
             is_valid, error_msg = validate_file(temp_path, modality, max_size)
             if not is_valid:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=error_msg,
                 )
-            
-            # Run inference
+
+            service_info = services.get(modality)
+            if not service_info or service_info["service"] is None:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=f"{modality} service not available: {service_info['status'] if service_info else 'not initialized'}",
+                )
+
+            service = service_info["service"]
             try:
                 preprocessed = service.preprocess(temp_path)
-                result = service.predict(preprocessed)
-                return result
+                return service.predict(preprocessed)
             except Exception as e:
                 logger.error(f"Inference failed for {modality}: {e}")
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"Inference failed: {str(e)}",
                 )
-    
+
     except HTTPException:
         raise
     except Exception as e:
@@ -400,19 +409,58 @@ async def predict_multimodal(
             detail="At least one file (image, video, or audio) must be provided",
         )
     
-    # For now, return a simple implementation that uses the first available modality
-    # In production, this would implement proper fusion logic
+    probabilities = {}
+
+    # Process each provided modality.
+    # Use getattr so this works with both Pydantic model instances and plain
+    # dicts returned by test mocks.
     if image:
-        return await predict_image(image)
-    elif video:
-        return await predict_video(video)
-    elif audio:
-        return await predict_audio(audio)
-    else:
+        res = await predict_image(image)
+        prob = getattr(res, "probability", None) if not isinstance(res, dict) else res.get("probability")
+        probabilities["image"] = np.array([prob])
+    if video:
+        res = await predict_video(video)
+        prob = getattr(res, "probability", None) if not isinstance(res, dict) else res.get("probability")
+        probabilities["video"] = np.array([prob])
+    if audio:
+        res = await predict_audio(audio)
+        prob = getattr(res, "probability", None) if not isinstance(res, dict) else res.get("probability")
+        probabilities["audio"] = np.array([prob])
+
+    if not probabilities:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No valid input provided",
         )
+
+    # Fuse probabilities — try dedicated fusion module, fall back to simple average
+    try:
+        from fusion.models import ProbabilityAveragingFusion, FusionConfig  # noqa: PLC0415
+        fusion_config = FusionConfig(
+            fusion_type="probability_averaging",
+            modalities=list(probabilities.keys()),
+        )
+        fusion_model = ProbabilityAveragingFusion(fusion_config)
+        fused_prob = float(fusion_model.fuse_probabilities(probabilities)[0])
+        fusion_weights = fusion_model.get_weights()
+    except ImportError:
+        # Fallback: simple unweighted average across modalities
+        fused_prob = float(np.mean([v[0] for v in probabilities.values()]))
+        fusion_weights = {k: 1.0 / len(probabilities) for k in probabilities}
+
+    prediction = "fake" if fused_prob >= settings.threshold else "real"
+
+    return PredictionResponse(
+        prediction=prediction,
+        probability=fused_prob,
+        calibrated_probability=fused_prob,
+        modality="multimodal",
+        model_version="1.0.0",
+        inference_latency_ms=0.0,
+        calibrated=False,
+        temperature=1.0,
+        explanation_metadata={"fusion_weights": fusion_weights},
+    )
 
 
 @app.post("/predict/forgetting", response_model=ForgettingPredictResponse)
@@ -441,7 +489,7 @@ async def http_exception_handler(request, exc):
     """Handle HTTP exceptions with structured error response."""
     return JSONResponse(
         status_code=exc.status_code,
-        content={"error": exc.detail, "detail": None},
+        content={"error": exc.detail, "detail": exc.detail},
     )
 
 

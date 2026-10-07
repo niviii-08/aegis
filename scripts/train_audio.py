@@ -44,7 +44,7 @@ def main() -> int:
             logger.error("Missing audio split: %s", split_path)
             return 1
 
-    metadata_path = PROJECT_ROOT / "reports" / "audio" / "preprocessing_metadata_mel_spectrogram.csv"
+    metadata_path = PROJECT_ROOT / "data" / "processed" / "audio" / "preprocessing" / "metadata.csv"
     if not metadata_path.is_file():
         logger.error("Missing preprocessing metadata: %s", metadata_path)
         logger.error("Run audio preprocessing first.")

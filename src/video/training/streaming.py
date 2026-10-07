@@ -27,7 +27,7 @@ _SRC_ROOT = Path(__file__).resolve().parents[2]
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
-from image.data_audit import find_project_root
+from video.data_audit import find_project_root
 from video.models.factory import build_model
 from video.training.dataset import load_split_csv
 from video.training.metrics import compute_metrics

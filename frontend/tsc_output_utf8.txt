@@ -1,0 +1,2 @@
+﻿src/lib/api.ts(3,34): error TS2339: Property 'env' does not exist on type 'ImportMeta'.
+src/pages/MultimodalDetection.tsx(3,10): error TS6133: 'Upload' is declared but its value is never read.

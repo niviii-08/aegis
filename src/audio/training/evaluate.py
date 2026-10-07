@@ -18,7 +18,7 @@ _SRC_ROOT = Path(__file__).resolve().parents[2]
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
-from audio.training.utils import find_project_root
+from audio.data_audit import find_project_root
 from audio.models.factory import build_model
 from audio.training.dataset import AudioDataset, resolve_samples
 from audio.training.experiment import ExperimentTracker

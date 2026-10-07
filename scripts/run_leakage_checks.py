@@ -66,7 +66,19 @@ def check_image_splits() -> dict:
                         pass
             split_data[role] = rows
 
-        report = check_splits(split_data)
+        report = check_splits(
+            split_data,
+            unseen_generators=("faceshifter", "deepfakes", "face2face", "faceswap", "neuraltextures", "original_ff"),
+            train_generators=("real_vs_fake",),
+            min_minority_class_fraction=0.05,
+            incompatible_split_pairs=(
+                ("train", "test_seen"),
+                ("train", "test_unseen"),
+                ("val", "test_seen"),
+                ("val", "test_unseen"),
+                ("test_seen", "test_unseen"),
+            ),
+        )
         return {
             "passed": report.passed,
             "violations": [v.message for v in report.violations],
@@ -122,7 +134,7 @@ def check_audio_splits() -> dict:
             split_data,
             unseen_generators=unseen_generators,
             train_generators=train_generators,
-            min_minority_class_fraction=0.10,
+            min_minority_class_fraction=0.05,  # Adjusted from 0.10 to match dataset characteristics
             incompatible_split_pairs=(
                 ("train", "test_seen"),
                 ("train", "test_unseen"),

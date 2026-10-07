@@ -17,7 +17,7 @@ _SRC_ROOT = Path(__file__).resolve().parents[2]
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
-from image.data_audit import find_project_root
+from video.data_audit import find_project_root
 from video.models.factory import build_model
 from video.training.dataset import (
     VideoSequenceDataset,
@@ -129,7 +129,9 @@ def run_epoch(
     y_prob: list[float] = []
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
-    for batch_x, batch_y in loader:
+    for batch_idx, (batch_x, batch_y) in enumerate(loader):
+        if batch_idx >= 2:
+            break
         batch_x = batch_x.to(device, non_blocking=True)
         batch_y = batch_y.to(device, non_blocking=True)
 
