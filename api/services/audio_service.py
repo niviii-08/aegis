@@ -85,38 +85,58 @@ class AudioInferenceService(BaseInferenceService):
         return PlaceholderModel()
     
     def preprocess(self, file_path: Path) -> torch.Tensor:
-        """Preprocess audio file for model inference using librosa."""
+        """Preprocess audio file (.flac, .wav, or precomputed .npy) for model inference."""
+        target_length = 600
         try:
-            import librosa
-            
-            # Match configs/audio_preprocessing.yaml parameters
-            # sr=16000 or 22050 (ASVspoof is 16k usually, training config uses what's in yaml)
-            y, sr = librosa.load(str(file_path), sr=16000)
-            
-            # Compute mel spectrogram
-            # Match typical params: n_mels=128, n_fft=400 (25ms), hop_length=160 (10ms)
-            mel_spec = librosa.feature.melspectrogram(
-                y=y, sr=sr, n_fft=400, hop_length=160, n_mels=128
-            )
-            mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
-            
-            # Ensure fixed time dimension (e.g., crop/pad to 600 frames for 6s)
-            target_length = 600
-            if mel_spec_db.shape[1] < target_length:
-                pad_width = target_length - mel_spec_db.shape[1]
-                mel_spec_db = np.pad(mel_spec_db, ((0, 0), (0, pad_width)), mode='constant')
+            # Direct loading of precomputed mel-spectrogram
+            if file_path.suffix.lower() == ".npy":
+                mel_spec_db = np.load(str(file_path))
             else:
-                mel_spec_db = mel_spec_db[:, :target_length]
-                
+                import soundfile as sf
+                import librosa
+
+                try:
+                    y, sr = sf.read(str(file_path))
+                except Exception:
+                    y, sr = librosa.load(str(file_path), sr=16000)
+
+                if y.ndim > 1:
+                    y = np.mean(y, axis=1)
+                if sr != 16000:
+                    y = librosa.resample(y.astype(np.float32), orig_sr=sr, target_sr=16000)
+                    sr = 16000
+
+                mel_spec = librosa.feature.melspectrogram(
+                    y=y.astype(np.float32), sr=sr, n_fft=512, hop_length=160, n_mels=128
+                )
+                mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+
+            # Ensure 2D (128, T)
+            if mel_spec_db.ndim == 3 and mel_spec_db.shape[0] == 1:
+                mel_spec_db = mel_spec_db[0]
+
+            # Ensure fixed time dimension with symmetric center crop/pad
+            n_mels, T = mel_spec_db.shape
+            if T > target_length:
+                start = (T - target_length) // 2
+                mel_spec_db = mel_spec_db[:, start : start + target_length]
+            elif T < target_length:
+                pad_width = target_length - T
+                pad_left = pad_width // 2
+                pad_right = pad_width - pad_left
+                mel_spec_db = np.pad(mel_spec_db, ((0, 0), (pad_left, pad_right)), mode="constant")
+
             # Convert to tensor: shape [batch=1, channels=1, mels=128, time=600]
             tensor = torch.from_numpy(mel_spec_db).float().unsqueeze(0).unsqueeze(0)
             return tensor.to(self.device)
-            
+
         except Exception as e:
             logger.error(f"Audio preprocessing failed: {e}")
             raise ValueError(f"Failed to preprocess audio: {e}")
     
-    def predict(self, preprocessed_data: torch.Tensor) -> dict[str, Any]:
+    def predict(self, preprocessed_data: torch.Tensor | Path | str) -> dict[str, Any]:
+        if isinstance(preprocessed_data, (str, Path)):
+            preprocessed_data = self.preprocess(Path(preprocessed_data))
         """Run inference on preprocessed audio data."""
         start_time = time.time()
         
