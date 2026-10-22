@@ -20,9 +20,9 @@ from api.main import app, settings
 from api.utils.validation import validate_file, validate_file_size, validate_mime_type, validate_file_extension
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def client():
-    """Create a test client with lifespan context so services are initialised."""
+    """Create a test client with lifespan context so services are initialised once."""
     with TestClient(app) as c:
         yield c
 

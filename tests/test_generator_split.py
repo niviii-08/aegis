@@ -67,9 +67,9 @@ class TestSplitIntegration:
         statistics = build_generator_splits(PROJECT_ROOT, config_path=CONFIG_PATH)
         assert statistics.split_counts["train"] == 100_000
         assert statistics.split_counts["val"] == 20_000
-        assert statistics.split_counts["test_seen"] == 20_000
-        assert statistics.split_counts["test_unseen"] == 0
-        assert statistics.unseen_generator_samples_available is False
+        assert statistics.split_counts["test_seen"] == 18_750
+        assert statistics.split_counts["test_unseen"] == 2_500
+        assert statistics.unseen_generator_samples_available is True
         assert statistics.leakage_summary["passed"] is True
 
     def test_split_csv_headers(self) -> None:

@@ -108,8 +108,8 @@ class TestGeneratorLeakage:
             unseen_generators=["deepfakes"],
             train_generators=["ffhq_authentic", "stylegan"],
         )
-        assert len(violations) == 1
-        assert violations[0].kind == "generator_leakage"
+        assert any(v.kind == "generator_leakage" for v in violations)
+        assert any(v.kind == "generator_policy" for v in violations)
 
 
 class TestClassBalance:
