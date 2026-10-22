@@ -44,7 +44,8 @@ class VideoInferenceService(BaseInferenceService):
             try:
                 from video.models.factory import build_model
                 config_dict = checkpoint.get("config", {})
-                model_cfg = config_dict.get("model", {})
+                model_cfg = dict(config_dict.get("model", {}))
+                model_cfg["pretrained"] = False
                 self.model = build_model(model_cfg)
             except (ImportError, AttributeError):
                 # Fallback: create a simple placeholder model structure
@@ -85,18 +86,51 @@ class VideoInferenceService(BaseInferenceService):
         return PlaceholderModel()
     
     def preprocess(self, file_path: Path) -> torch.Tensor:
-        """Preprocess video file for model inference."""
+        """Preprocess video file for model inference by sampling uniform frames."""
+        import cv2
+
         try:
-            # For now, return a placeholder tensor
-            # In production, this would use the video preprocessing pipeline
-            # from src.video.preprocessing.extract_frames
-            
-            logger.warning("Video preprocessing not fully implemented, using placeholder")
-            # Placeholder: return random tensor of expected shape
-            # Shape: [batch, sequence_length, channels, height, width]
-            placeholder = torch.randn(1, self.sequence_length, 3, 224, 224).to(self.device)
-            return placeholder
-            
+            frames: list[np.ndarray] = []
+            cap = cv2.VideoCapture(str(file_path))
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+            if total_frames > 0 and cap.isOpened():
+                if total_frames >= self.sequence_length:
+                    indices = set(np.linspace(0, total_frames - 1, self.sequence_length, dtype=int))
+                else:
+                    indices = set(range(total_frames))
+
+                idx = 0
+                while cap.isOpened() and len(frames) < self.sequence_length:
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    if idx in indices:
+                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        frame_resized = cv2.resize(frame_rgb, (224, 224))
+                        frames.append(frame_resized)
+                    idx += 1
+                cap.release()
+
+            # Handle case where video has fewer frames than required sequence length
+            if frames:
+                while len(frames) < self.sequence_length:
+                    frames.append(frames[-1].copy())
+            else:
+                # Fallback if video could not be decoded
+                logger.warning("VideoCapture extracted 0 frames from %s, using synthetic tensor", file_path)
+                return torch.zeros(1, self.sequence_length, 3, 224, 224, device=self.device)
+
+            # Stack, normalize (ImageNet), and shape to [1, sequence_length, 3, 224, 224]
+            frames_arr = np.stack(frames[:self.sequence_length]).astype(np.float32) / 255.0
+            mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1, 1, 1, 3)
+            std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 1, 1, 3)
+            norm_frames = (frames_arr - mean) / std
+            # Transpose to [sequence_length, 3, 224, 224]
+            tensor_frames = np.transpose(norm_frames, (0, 3, 1, 2))
+            tensor = torch.from_numpy(tensor_frames).unsqueeze(0).float()
+            return tensor.to(self.device)
+
         except Exception as e:
             logger.error(f"Video preprocessing failed: {e}")
             raise ValueError(f"Failed to preprocess video: {e}")
