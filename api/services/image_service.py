@@ -202,9 +202,12 @@ class ImageInferenceService(BaseInferenceService):
             logger.error(f"Image preprocessing failed: {e}")
             raise ValueError(f"Failed to preprocess image: {e}")
     
-    def predict(self, preprocessed_data: torch.Tensor) -> dict[str, Any]:
-        """Run inference on preprocessed image data."""
+    def predict(self, preprocessed_data: torch.Tensor | Path | str) -> dict[str, Any]:
+        """Run inference on preprocessed image data or image file path."""
         start_time = time.time()
+        
+        if isinstance(preprocessed_data, (str, Path)):
+            preprocessed_data = self.preprocess(Path(preprocessed_data))
         
         try:
             domain_info = getattr(preprocessed_data, "domain_info", None)
