@@ -135,9 +135,12 @@ class VideoInferenceService(BaseInferenceService):
             logger.error(f"Video preprocessing failed: {e}")
             raise ValueError(f"Failed to preprocess video: {e}")
     
-    def predict(self, preprocessed_data: torch.Tensor) -> dict[str, Any]:
-        """Run inference on preprocessed video data."""
+    def predict(self, preprocessed_data: torch.Tensor | Path | str) -> dict[str, Any]:
+        """Run inference on preprocessed video data or video file path."""
         start_time = time.time()
+        
+        if isinstance(preprocessed_data, (str, Path)):
+            preprocessed_data = self.preprocess(Path(preprocessed_data))
         
         try:
             self.model.eval()
