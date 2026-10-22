@@ -27,7 +27,7 @@ model:
 training:
   seed: 42
   batch_size: 32
-  epochs: 2
+  epochs: 5
   learning_rate: 1.0e-4
   weight_decay: 1.0e-5
   optimizer: adam
@@ -35,7 +35,7 @@ training:
   scheduler_min_lr: 1.0e-6
   early_stopping:
     enabled: true
-    patience: 5
+    patience: 3
     monitor: val_roc_auc
     mode: max
   mixed_precision: auto
