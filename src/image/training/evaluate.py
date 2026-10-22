@@ -68,7 +68,8 @@ def predict_split(
 def load_checkpoint_model(checkpoint_path: Path, device: torch.device) -> tuple[nn.Module, dict[str, Any]]:
     payload = torch.load(checkpoint_path, map_location=device, weights_only=False)
     config_dict = payload.get("config", {})
-    model_cfg = config_dict.get("model", {})
+    model_cfg = dict(config_dict.get("model", {}))
+    model_cfg["pretrained"] = False
     model = build_model(model_cfg)
     model.load_state_dict(payload["model_state_dict"])
     model.to(device)

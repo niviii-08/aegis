@@ -13,6 +13,8 @@ statistics_path: reports/split_statistics.json
 generator_taxonomy:
   authentic:
     - ffhq_authentic
+    - unknown
+    - authentic
   seen_forgery:
     - stylegan
   unseen_forgery:
@@ -22,26 +24,44 @@ generator_taxonomy:
     - neuraltextures
     - faceshifter
     - deepfake_detection
+    - Deepfakes
+    - Face2Face
+    - FaceSwap
+    - NeuralTextures
+    - FaceShifter
 
 # Explicit generator assignments per evaluation split role.
 split_generators:
   train:
     - ffhq_authentic
     - stylegan
+    - unknown
+    - authentic
   val:
     - ffhq_authentic
     - stylegan
+    - unknown
+    - authentic
   test_seen:
     - ffhq_authentic
     - stylegan
+    - unknown
+    - authentic
   test_unseen:
-    # Reserved for held-out forgery generators once media is available.
     - deepfakes
     - face2face
     - faceswap
     - neuraltextures
     - faceshifter
     - deepfake_detection
+    - Deepfakes
+    - Face2Face
+    - FaceSwap
+    - NeuralTextures
+    - FaceShifter
+    - ffhq_authentic
+    - unknown
+    - authentic
 
 # Map upstream manifest split names to AEGIS evaluation roles when unseen
 # generator media is not yet present locally.
@@ -49,6 +69,7 @@ source_split_mapping:
   train: train
   valid: val
   test: test_seen
+  test_unseen: test_unseen
 
 validation:
   # Fail validation when minority class share drops below this fraction.

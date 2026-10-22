@@ -45,6 +45,7 @@ evaluation:
   splits:
     - val
     - test_seen
+    - test_unseen
 
 outputs:
   checkpoint_dir: models/image
