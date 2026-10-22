@@ -584,8 +584,13 @@ class ProjectReadinessChecker:
                     )
                     continue
                 
-                train_generators = set(train_df['generator'].dropna().unique())
-                test_unseen_generators = set(test_unseen_df['generator'].dropna().unique())
+                authentic_keys = {"ffhq_authentic", "authentic", "unknown", "bonafide", "original", "real"}
+                if 'label' in train_df.columns and 'label' in test_unseen_df.columns:
+                    train_generators = set(train_df[train_df['label'] == 'fake']['generator'].dropna().unique()) - authentic_keys
+                    test_unseen_generators = set(test_unseen_df[test_unseen_df['label'] == 'fake']['generator'].dropna().unique()) - authentic_keys
+                else:
+                    train_generators = set(train_df['generator'].dropna().unique()) - authentic_keys
+                    test_unseen_generators = set(test_unseen_df['generator'].dropna().unique()) - authentic_keys
                 
                 # Check for overlap
                 overlap = train_generators & test_unseen_generators
@@ -593,7 +598,7 @@ class ProjectReadinessChecker:
                     self._add_result(
                         f"{modality}_generator_leakage",
                         ReadinessStatus.FAIL,
-                        f"{modality} generators in train also in test_unseen: {overlap}",
+                        f"{modality} forgery generators in train also in test_unseen: {overlap}",
                         {"leaking_generators": list(overlap)},
                         critical=True
                     )
