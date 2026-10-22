@@ -79,3 +79,7 @@ real-vs-fake/
 venv/
 .venv/
 __pycache__/
+
+mlruns/
+.kilo/
+.pytest_cache/
