@@ -358,7 +358,7 @@ class AudioDataset(Dataset):
         return tensor
 
     def _apply_spec_augment(self, mel_tensor: torch.Tensor) -> torch.Tensor:
-        """Apply SpecAugment: frequency and time masking.
+        """Apply SpecAugment: frequency and time masking using pure PyTorch.
         
         Args:
             mel_tensor: [1, n_mels, T] tensor
@@ -366,19 +366,24 @@ class AudioDataset(Dataset):
         Returns:
             Augmented [1, n_mels, T] tensor
         """
-        from torchaudio.transforms import FrequencyMasking, TimeMasking
+        tensor = mel_tensor.clone()
+        _, n_mels, t_steps = tensor.shape
         
         # Frequency masking
         for _ in range(self.mel_config.num_freq_masks):
-            freq_mask = FrequencyMasking(freq_mask_param=self.mel_config.freq_mask_param)
-            mel_tensor = freq_mask(mel_tensor)
-        
+            f_len = int(torch.randint(0, max(1, self.mel_config.freq_mask_param + 1), (1,)).item())
+            if 0 < f_len < n_mels:
+                f0 = int(torch.randint(0, n_mels - f_len, (1,)).item())
+                tensor[:, f0 : f0 + f_len, :] = 0.0
+                
         # Time masking
         for _ in range(self.mel_config.num_time_masks):
-            time_mask = TimeMasking(time_mask_param=self.mel_config.time_mask_param)
-            mel_tensor = time_mask(mel_tensor)
-        
-        return mel_tensor
+            t_len = int(torch.randint(0, max(1, self.mel_config.time_mask_param + 1), (1,)).item())
+            if 0 < t_len < t_steps:
+                t0 = int(torch.randint(0, t_steps - t_len, (1,)).item())
+                tensor[:, :, t0 : t0 + t_len] = 0.0
+                
+        return tensor
 
     def _process_wav2vec2(self, embedding: np.ndarray) -> torch.Tensor:
         """Process wav2vec2 embedding: pad or truncate to fixed length.

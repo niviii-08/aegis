@@ -21,6 +21,8 @@ from audio.data_audit import find_project_root
 from audio.models.factory import build_model
 from audio.training.dataset import (
     AudioDataset,
+    AudioSampleRecord,
+    MelSpectrogramConfig,
     measure_class_balance,
     resolve_samples,
 )
@@ -180,6 +182,45 @@ def save_checkpoint(
     temp_path.replace(path)
 
 
+
+
+def balance_dataset(samples: list[AudioSampleRecord], seed: int = 42) -> list[AudioSampleRecord]:
+    """Balance real and fake samples, stratifying fakes across generators."""
+    import random
+    from collections import defaultdict
+    rng = random.Random(seed)
+    
+    real_samples = [s for s in samples if s.label == 0]
+    fake_samples = [s for s in samples if s.label == 1]
+    if not real_samples or not fake_samples:
+        return list(samples)
+        
+    fakes_by_gen: dict[str, list[AudioSampleRecord]] = defaultdict(list)
+    for s in fake_samples:
+        fakes_by_gen[s.generator].append(s)
+        
+    target_fakes = len(real_samples)
+    per_gen = max(1, target_fakes // max(1, len(fakes_by_gen)))
+    balanced_fakes: list[AudioSampleRecord] = []
+    for gen, items in fakes_by_gen.items():
+        shuffled = list(items)
+        rng.shuffle(shuffled)
+        balanced_fakes.extend(shuffled[:per_gen])
+        
+    if len(balanced_fakes) < target_fakes:
+        selected_ids = {id(s) for s in balanced_fakes}
+        remaining = [s for s in fake_samples if id(s) not in selected_ids]
+        rng.shuffle(remaining)
+        balanced_fakes.extend(remaining[:target_fakes - len(balanced_fakes)])
+        
+    balanced = list(real_samples) + list(balanced_fakes)
+    rng.shuffle(balanced)
+    logger.info(
+        "Balanced dataset: %d samples (%d real, %d fake across %d generators)",
+        len(balanced), len(real_samples), len(balanced_fakes), len(fakes_by_gen)
+    )
+    return balanced
+
 def train(config: TrainingConfig) -> Path:
     """Run full training and return best checkpoint path."""
     set_seed(config.seed)
@@ -213,6 +254,9 @@ def train(config: TrainingConfig) -> Path:
             "Ensure preprocessing has completed for the val split."
         )
 
+    train_samples = balance_dataset(train_samples, seed=config.seed)
+    val_samples = balance_dataset(val_samples, seed=config.seed)
+
     train_balance = measure_class_balance(train_samples)
     use_class_weights = should_use_class_weights(
         train_balance,
@@ -235,15 +279,28 @@ def train(config: TrainingConfig) -> Path:
             config.class_imbalance_threshold,
         )
 
+    mel_train_cfg = MelSpectrogramConfig(
+        n_mels=128,
+        target_length_frames=600,
+        apply_spec_augment=True,
+        crop_mode="random",
+    )
+    mel_val_cfg = MelSpectrogramConfig(
+        n_mels=128,
+        target_length_frames=600,
+        apply_spec_augment=False,
+        crop_mode="center",
+    )
+
     train_loader = DataLoader(
-        AudioDataset(train_samples, feature_mode=config.feature_mode, is_training=True),
+        AudioDataset(train_samples, feature_mode=config.feature_mode, mel_config=mel_train_cfg, is_training=True),
         batch_size=config.batch_size,
         shuffle=True,
         num_workers=config.num_workers,
         pin_memory=config.pin_memory and device.type == "cuda",
     )
     val_loader = DataLoader(
-        AudioDataset(val_samples, feature_mode=config.feature_mode, is_training=False),
+        AudioDataset(val_samples, feature_mode=config.feature_mode, mel_config=mel_val_cfg, is_training=False),
         batch_size=config.batch_size,
         shuffle=False,
         num_workers=config.num_workers,
