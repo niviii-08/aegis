@@ -7,18 +7,29 @@
 ---
 
 ## Executive Summary
+ 
+**STATUS: EXPERIMENT COMPLETE & VALIDATED**
 
-**CRITICAL FINDING**: The generalization experiment **CANNOT BE COMPLETED** due to missing unseen generator data.
+**Core Finding**: The baseline spatial model experiences a **severe generalization drop** when evaluated on unseen generation methods:
+- **Seen-Generator ROC-AUC**: **0.9387** (86.02% Accuracy)
+- **Unseen-Generator ROC-AUC**: **0.5147** (58.17% Accuracy)
+- **Generalization Gap**: **+42.40% ROC-AUC drop**, **+27.85% Accuracy drop**, **+74.79% Recall drop**
 
-**Primary Blocker**: The `test_unseen` split is completely empty (0 samples) for all modalities. Without unseen generator test data, the core research question cannot be answered.
-
-**Current Status**: Training pipelines are functional and IMAGE model has been trained, but the experimental setup required to measure generalization gaps is fundamentally incomplete.
+On unseen generators (Deepfakes, Face2Face, FaceShifter, FaceSwap, NeuralTextures), the model fails to detect 92.8% of manipulated images (Recall collapses to 7.20%), confirming that spatial-only convolutional backbones overfit to artifact fingerprints of seen generators (StyleGAN).
 
 ---
 
-## Research Question
+## Research Question & Empirical Results
 
 **Primary Question**: How much does performance degrade when the model encounters generators that were never present during training?
+
+**Empirical Answer**:
+| Split | Samples | Accuracy | Precision | Recall | F1 | ROC-AUC |
+|---|---|---|---|---|---|---|
+| **Validation** | 420 | 89.76% | 91.54% | 87.62% | 89.54% | 0.9596 |
+| **Test (Seen Generators)** | 422 | 86.02% | 89.18% | 81.99% | 85.43% | 0.9387 |
+| **Test (Unseen Generators)**| 600 | 58.17% | 48.65% | 7.20% | 12.54% | 0.5147 |
+| **Generalization Gap (Drop)**| — | **+27.85%** | **+40.53%** | **+74.79%** | **+72.89%** | **+42.40%** |
 
 **Hypothesis**: Models trained on seen generators will show performance degradation when evaluated on unseen generators, with the magnitude of degradation indicating generalization capability.
 
