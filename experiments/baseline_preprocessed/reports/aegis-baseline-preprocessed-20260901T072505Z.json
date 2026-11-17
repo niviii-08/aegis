@@ -1,0 +1,71 @@
+{
+  "experiment_name": "aegis-baseline-preprocessed",
+  "run_name": "aegis-baseline-preprocessed-20260901T072505Z",
+  "started_at": "2026-09-01T07:25:05.404311+00:00",
+  "configuration": {
+    "version": "1.0.0",
+    "config_path": "C:\\Users\\Neevetha N\\Downloads\\AEGIS\\experiments\\baseline_preprocessed\\config.yaml",
+    "split_dir": "C:\\Users\\Neevetha N\\Downloads\\AEGIS\\experiments\\baseline_preprocessed\\splits",
+    "metadata_path": "C:\\Users\\Neevetha N\\Downloads\\AEGIS\\data\\processed\\image\\preprocessing\\metadata.csv",
+    "split_version": "1.0.0",
+    "preprocessing_version": "1.0.0",
+    "input_source": "normalized_npy",
+    "model.backbone": "efficientnet_b4",
+    "model.pretrained": true,
+    "model.dropout": 0.2,
+    "model.input_size": 224,
+    "training.seed": 42,
+    "training.batch_size": 4,
+    "training.epochs": 20,
+    "training.learning_rate": 0.0001,
+    "training.weight_decay": 1e-05,
+    "training.optimizer": "adamw",
+    "training.scheduler": "cosine",
+    "training.mixed_precision": "false",
+    "training.class_weighting": "false"
+  },
+  "git_commit": "179703b23edcfc57925fb04d67133e5ce75cd262",
+  "split_version": "1.0.0",
+  "preprocessing_version": "1.0.0",
+  "model_architecture": {
+    "backbone": "efficientnet_b4",
+    "pretrained": true,
+    "dropout": 0.2,
+    "input_size": 224,
+    "output": "single_logit_p_fake",
+    "label_convention": {
+      "fake": 1,
+      "real": 0
+    }
+  },
+  "random_seed": 42,
+  "metrics": {
+    "train_class_balance_minority_fraction": 0.0,
+    "train_accuracy": 1.0,
+    "train_precision": 0.0,
+    "train_recall": 0.0,
+    "train_f1": 0.0,
+    "train_balanced_accuracy": 1.0,
+    "train_support": 2,
+    "train_threshold": 0.5,
+    "train_loss": 0.05524706840515137,
+    "val_accuracy": 1.0,
+    "val_precision": 0.0,
+    "val_recall": 0.0,
+    "val_f1": 0.0,
+    "val_balanced_accuracy": 1.0,
+    "val_support": 1,
+    "val_threshold": 0.5,
+    "val_loss": 0.37588977813720703,
+    "epoch": 11,
+    "learning_rate": 4.275649398050859e-05
+  },
+  "checkpoint_path": "C:\\Users\\Neevetha N\\Downloads\\AEGIS\\experiments\\baseline_preprocessed\\checkpoints\\baseline_best.pt",
+  "artifacts": {
+    "image_baseline_results": "C:\\Users\\Neevetha N\\Downloads\\AEGIS\\experiments\\baseline_preprocessed\\results.json"
+  },
+  "notes": [
+    "Early stopping at epoch 11"
+  ],
+  "backend": "json"
+}
