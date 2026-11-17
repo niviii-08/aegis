@@ -17,14 +17,14 @@ archive (1)/
 archive (2)/
 
 # Generated outputs
-results/
-reports/
+/results/
+/reports/
 ml/data/
 
 ml/artifacts/
 
 # Model weights / checkpoints
-models/
+/models/
 *.pth
 *.pt
 *.ckpt
