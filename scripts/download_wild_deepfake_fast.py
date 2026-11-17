@@ -78,6 +78,12 @@ def run_download(num_archives: int = 15, split_type: str = "train", output_dir: 
         total_extracted = 0
 
         for idx, filename in enumerate(selected, 1):
+            folder_name = filename.replace(".tar.gz", "").replace(".tar", "")
+            extracted_folder = target_dir / folder_name
+            if extracted_folder.is_dir() and any(extracted_folder.iterdir()):
+                logger.info(f"  [{label} {idx}/{len(selected)}] {filename} already extracted -> skipping download.")
+                continue
+
             url = f"{RESOLVE_URL}/{split}/{filename}"
             local_tar = temp_dir / f"{label}_{filename}"
             logger.info(f"  [{label} {idx}/{len(selected)}] Downloading {filename}...")

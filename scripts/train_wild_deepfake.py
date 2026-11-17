@@ -184,12 +184,15 @@ def extract_and_cache_features(
     backbone: nn.Module,
     device: torch.device,
     split_name: str,
+    force_reextract: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Extract and cache sequence features with EfficientNet backbone."""
-    if cache_path.is_file():
+    if cache_path.is_file() and not force_reextract:
         logger.info("Loading cached %s features from: %s", split_name, cache_path)
         cached = torch.load(cache_path, map_location="cpu", weights_only=False)
-        return cached["features"], cached["labels"]
+        if len(cached["labels"]) == len(labels):
+            return cached["features"], cached["labels"]
+        logger.info("Cache size mismatch (%d vs %d expected) -> re-extracting %s", len(cached["labels"]), len(labels), split_name)
 
     logger.info("Extracting %s features for %d sequences...", split_name, len(paths))
     features_list: List[torch.Tensor] = []
@@ -425,9 +428,13 @@ def train_wild_model(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Train AEGIS video model on WildDeepfake.")
-    parser.add_argument("--epochs", type=int, default=15, help="Number of training epochs")
+    parser.add_argument("--epochs", type=int, default=25, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=3.0e-4, help="Learning rate")
     parser.add_argument("--batch-size", type=int, default=8, help="Batch size")
+    parser.add_argument("--n-train", type=int, default=250, help="Train sequences per class")
+    parser.add_argument("--n-val", type=int, default=30, help="Val sequences per class")
+    parser.add_argument("--n-test", type=int, default=30, help="Test sequences per class")
+    parser.add_argument("--force-reextract", action="store_true", help="Force re-extraction of features")
     parser.add_argument("--device", type=str, default="cpu", help="Device (cpu or cuda)")
     args = parser.parse_args()
 
@@ -442,7 +449,9 @@ def main() -> int:
         return 1
 
     # 2. Make balanced splits
-    splits = make_balanced_splits(real_seqs, fake_seqs, n_train=70, n_val=10, n_test=10, seed=42)
+    splits = make_balanced_splits(
+        real_seqs, fake_seqs, n_train=args.n_train, n_val=args.n_val, n_test=args.n_test, seed=42
+    )
 
     # 3. Load full backbone model for feature extraction
     cfg = VideoBaselineConfig(
@@ -471,7 +480,7 @@ def main() -> int:
         paths, labels = splits[s_name]
         c_path = DEFAULT_CACHE_DIR / f"{s_name}_feats.pt"
         feats, lbls = extract_and_cache_features(
-            paths, labels, c_path, full_model.backbone, device, s_name
+            paths, labels, c_path, full_model.backbone, device, s_name, force_reextract=args.force_reextract
         )
         cached_datasets[s_name] = TensorDataset(feats, lbls)
 
