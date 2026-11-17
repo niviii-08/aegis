@@ -196,6 +196,18 @@ app.add_middleware(
 )
 
 
+@app.get("/")
+async def root():
+    """Root endpoint."""
+    return {"message": "AEGIS Inference API is running", "docs": "/docs", "health": "/health"}
+
+
+@app.get("/api/v1/health")
+async def api_v1_health():
+    """Health check alias."""
+    return await health_check()
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
