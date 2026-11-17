@@ -59,19 +59,20 @@ def extract_archive(tar_path: Path, dest_dir: Path) -> int:
     return count
 
 
-def run_download(num_archives: int = 5, output_dir: Path = DEFAULT_OUT_DIR) -> dict:
+def run_download(num_archives: int = 15, split_type: str = "train", output_dir: Path = DEFAULT_OUT_DIR) -> dict:
     """Download and extract a balanced set of real and fake video archives."""
     output_dir.mkdir(parents=True, exist_ok=True)
     temp_dir = output_dir / "_temp"
     temp_dir.mkdir(parents=True, exist_ok=True)
 
-    summary = {"real_sequences": 0, "fake_sequences": 0, "total_frames": 0}
+    summary = {"real_frames": 0, "fake_frames": 0, "total_frames": 0}
+    splits = [("real", f"real_{split_type}"), ("fake", f"fake_{split_type}")]
 
-    for label, split in [("real", "real_test"), ("fake", "fake_test")]:
+    for label, split in splits:
         logger.info(f"Fetching archives list for {label} ({split})...")
         available = get_available_archives(split)
         selected = available[:num_archives]
-        logger.info(f"Selected {len(selected)} archive(s) for {label}: {selected}")
+        logger.info(f"Selected {len(selected)} archive(s) for {label}: {selected[:5]}...")
 
         target_dir = output_dir / label
         total_extracted = 0
@@ -106,8 +107,15 @@ def main() -> None:
     parser.add_argument(
         "--archives-per-class",
         type=int,
-        default=5,
-        help="Number of archive parts to download per class (each is ~50-80MB)"
+        default=15,
+        help="Number of archive parts to download per class (each is ~25-35MB)"
+    )
+    parser.add_argument(
+        "--split-type",
+        type=str,
+        default="train",
+        choices=["train", "test"],
+        help="Split to download (train or test)"
     )
     parser.add_argument(
         "--output-dir",
@@ -119,6 +127,7 @@ def main() -> None:
 
     run_download(
         num_archives=args.archives_per_class,
+        split_type=args.split_type,
         output_dir=Path(args.output_dir)
     )
 
