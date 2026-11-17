@@ -15,8 +15,13 @@ import logging
 import sys
 from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    force=True,
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logger = logging.getLogger("TrainVideo")
 
 
 def find_project_root() -> Path:

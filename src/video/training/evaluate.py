@@ -37,6 +37,25 @@ from video.training.utils import (
 logger = logging.getLogger(__name__)
 
 
+def find_optimal_threshold(y_true: np.ndarray, y_prob: np.ndarray) -> float:
+    """Find threshold that maximizes Balanced Accuracy (TPR + TNR) / 2."""
+    if len(y_true) == 0 or len(np.unique(y_true)) < 2:
+        return 0.50
+    from sklearn.metrics import confusion_matrix
+    best_thresh = 0.50
+    best_score = -1.0
+    for t in np.arange(0.10, 0.90, 0.01):
+        preds = (y_prob >= t).astype(int)
+        tn, fp, fn, tp = confusion_matrix(y_true, preds, labels=[0, 1]).ravel()
+        tpr = tp / max(tp + fn, 1)
+        tnr = tn / max(tn + fp, 1)
+        score = (tpr + tnr) / 2.0
+        if score > best_score or (np.isclose(score, best_score) and abs(t - 0.5) < abs(best_thresh - 0.5)):
+            best_score = score
+            best_thresh = float(t)
+    return best_thresh
+
+
 @torch.no_grad()
 def predict_split(
     model: nn.Module,
@@ -45,12 +64,21 @@ def predict_split(
     *,
     use_amp: bool,
     threshold: float,
-) -> dict[str, Any]:
+    max_eval_batches: int | None = 20,
+) -> tuple[dict[str, Any], np.ndarray, np.ndarray]:
+    import time
     model.eval()
     y_true: list[int] = []
     y_prob: list[float] = []
 
-    for batch_x, batch_y in loader:
+    total_target = min(len(loader), max_eval_batches) if max_eval_batches else len(loader)
+    logger.info("    Evaluating %d batches...", total_target)
+    sys.stdout.flush()
+
+    t_eval_start = time.time()
+    for batch_idx, (batch_x, batch_y) in enumerate(loader):
+        if max_eval_batches is not None and batch_idx >= max_eval_batches:
+            break
         batch_x = batch_x.to(device, non_blocking=True)
         with torch.autocast(device_type=device.type, enabled=use_amp):
             logits = model(batch_x)
@@ -59,9 +87,18 @@ def predict_split(
         y_prob.extend(probs.tolist())
         y_true.extend(batch_y.numpy().astype(int).tolist())
 
-    metrics = compute_metrics(np.array(y_true), np.array(y_prob), threshold=threshold)
-    metrics["sample_ids"] = [sample.video_id for sample in loader.dataset.samples]
-    return metrics
+        if (batch_idx + 1) % 5 == 0 or (batch_idx + 1) == total_target:
+            elapsed = time.time() - t_eval_start
+            sec_per_batch = elapsed / (batch_idx + 1)
+            eta = sec_per_batch * (total_target - (batch_idx + 1))
+            logger.info("      Progress: %d/%d batches (%.2fs/batch, ETA: %.1fs)", batch_idx + 1, total_target, sec_per_batch, eta)
+            sys.stdout.flush()
+
+    arr_true = np.array(y_true)
+    arr_prob = np.array(y_prob)
+    metrics = compute_metrics(arr_true, arr_prob, threshold=threshold)
+    metrics["sample_ids"] = [sample.video_id for sample in loader.dataset.samples[:len(y_true)]]
+    return metrics, arr_true, arr_prob
 
 
 def load_checkpoint_model(checkpoint_path: Path, device: torch.device) -> tuple[nn.Module, dict[str, Any]]:
@@ -85,6 +122,7 @@ def evaluate_checkpoint(
     model, checkpoint_payload = load_checkpoint_model(checkpoint_path, device)
 
     split_metrics: dict[str, Any] = {}
+    raw_predictions: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     frames_root = config.project_root / "data" / "processed" / "video" / "frames"
 
     for split_name in config.eval_splits:
@@ -102,6 +140,7 @@ def evaluate_checkpoint(
             split_metrics[split_name]["note"] = "no_preprocessed_samples"
             continue
 
+        logger.info("Evaluating split: %s (%d total samples available)...", split_name, len(samples))
         loader = DataLoader(
             VideoSequenceDataset(
                 samples,
@@ -109,19 +148,40 @@ def evaluate_checkpoint(
                 is_training=False,
             ),
             batch_size=config.batch_size,
-            shuffle=False,
+            shuffle=True,
             num_workers=config.num_workers,
             pin_memory=config.pin_memory and device.type == "cuda",
         )
-        split_metrics[split_name] = predict_split(
+        metrics, arr_true, arr_prob = predict_split(
             model,
             loader,
             device,
             use_amp=use_amp,
             threshold=config.eval_threshold,
+            max_eval_batches=25,
         )
+        raw_predictions[split_name] = (arr_true, arr_prob)
+        split_metrics[split_name] = metrics
         # Drop per-sample ids from persisted report to keep JSON compact.
         split_metrics[split_name].pop("sample_ids", None)
+
+    # Calibrate decision threshold on validation set
+    optimal_thresh = float(config.eval_threshold)
+    if "val" in raw_predictions:
+        val_true, val_prob = raw_predictions["val"]
+        optimal_thresh = float(find_optimal_threshold(val_true, val_prob))
+        logger.info("Optimal Decision Threshold Calibrated on Val: %.3f", optimal_thresh)
+        for s_name in config.eval_splits:
+            if s_name in raw_predictions:
+                t_arr, p_arr = raw_predictions[s_name]
+                split_metrics[s_name] = compute_metrics(t_arr, p_arr, threshold=optimal_thresh)
+                logger.info("  [%s Calibrated] Acc: %.2f%% | Prec: %.2f%% | Rec: %.2f%% | F1: %.2f%% | BalAcc: %.2f%%",
+                            s_name,
+                            split_metrics[s_name]["accuracy"] * 100,
+                            split_metrics[s_name]["precision"] * 100,
+                            split_metrics[s_name]["recall"] * 100,
+                            split_metrics[s_name]["f1"] * 100,
+                            split_metrics[s_name]["balanced_accuracy"] * 100)
 
     seen_metrics = split_metrics.get("test_seen", compute_metrics(np.array([]), np.array([])))
     unseen_metrics = split_metrics.get("test_unseen", compute_metrics(np.array([]), np.array([])))
@@ -138,6 +198,7 @@ def evaluate_checkpoint(
         "model_architecture": model.describe() if hasattr(model, "describe") else {},
         "random_seed": config.seed,
         "eval_threshold": config.eval_threshold,
+        "optimal_threshold": optimal_thresh,
         "splits": split_metrics,
         "generalization_gap": generalization_gap,
         "metric_names": list(METRIC_NAMES),

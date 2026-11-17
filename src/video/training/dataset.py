@@ -35,10 +35,13 @@ def load_split_csv(split_csv: Path, frames_root: Path) -> list[VideoSample]:
         raise FileNotFoundError(f"Split CSV not found: {split_csv}")
 
     samples = []
+    seen_videos: set[str] = set()
     with split_csv.open(newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             video_id = row["video_id"]
+            if video_id in seen_videos:
+                continue
             generator = row["generator"]
             label_str = row["label"]
             split_role = row["split_role"]
@@ -50,6 +53,7 @@ def load_split_csv(split_csv: Path, frames_root: Path) -> list[VideoSample]:
             frames_dir = frames_root / video_id
             # Only include videos that have successfully extracted frames
             if frames_dir.is_dir():
+                seen_videos.add(video_id)
                 samples.append(
                     VideoSample(
                         video_id=video_id,
@@ -82,10 +86,8 @@ class VideoSequenceDataset(Dataset):
             std=[0.229, 0.224, 0.225]
         )
         
-        # ColorJitter applied consistently to the whole sequence if training
-        self.color_jitter = transforms.ColorJitter(
-            brightness=0.1, contrast=0.1, saturation=0.1, hue=0.05
-        ) if is_training else None
+        # ColorJitter is disabled to preserve natural temporal consistency across frames
+        self.color_jitter = None
 
     def __len__(self) -> int:
         return len(self.samples)

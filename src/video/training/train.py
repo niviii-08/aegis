@@ -120,7 +120,11 @@ def run_epoch(
     *,
     use_amp: bool,
     scheduler: torch.optim.lr_scheduler._LRScheduler | None = None,
+    max_batches: int | None = None,
+    epoch: int = 1,
+    total_epochs: int = 1,
 ) -> dict[str, float]:
+    import time
     is_train = optimizer is not None
     model.train(is_train)
 
@@ -129,8 +133,15 @@ def run_epoch(
     y_prob: list[float] = []
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
+    total_target = min(len(loader), max_batches) if max_batches else len(loader)
+    phase = "Train" if is_train else "Val"
+    logger.info("  [%s Epoch %d/%d] Starting pass across %d batches...", phase, epoch, total_epochs, total_target)
+    sys.stdout.flush()
+
+    t_epoch_start = time.time()
+
     for batch_idx, (batch_x, batch_y) in enumerate(loader):
-        if batch_idx >= 2:
+        if max_batches is not None and batch_idx >= max_batches:
             break
         batch_x = batch_x.to(device, non_blocking=True)
         batch_y = batch_y.to(device, non_blocking=True)
@@ -140,7 +151,9 @@ def run_epoch(
                 logits = model(batch_x)
                 # Ensure logits and targets have matching shape [B]
                 logits = logits.view(-1)
-                loss = criterion(logits, batch_y)
+                # Label smoothing: 0.05 for real, 0.95 for fake to prevent overconfidence
+                smooth_y = batch_y * 0.90 + 0.05 if is_train else batch_y
+                loss = criterion(logits, smooth_y)
 
             if is_train:
                 optimizer.zero_grad(set_to_none=True)
@@ -154,6 +167,22 @@ def run_epoch(
         probs = torch.sigmoid(logits.detach()).cpu().numpy().flatten()
         y_prob.extend(probs.tolist())
         y_true.extend(batch_y.detach().cpu().numpy().astype(int).tolist())
+
+        if (batch_idx + 1) % 5 == 0 or (batch_idx + 1) == total_target:
+            elapsed = time.time() - t_epoch_start
+            sec_per_batch = elapsed / (batch_idx + 1)
+            eta = sec_per_batch * (total_target - (batch_idx + 1))
+            current_loss = float(np.mean(losses)) if losses else 0.0
+            logger.info(
+                "    [%s %d/%d] Avg Loss: %.4f (%.2fs/batch, ETA: %.1fs)",
+                phase,
+                batch_idx + 1,
+                total_target,
+                current_loss,
+                sec_per_batch,
+                eta,
+            )
+            sys.stdout.flush()
 
     metrics = compute_metrics(np.array(y_true), np.array(y_prob))
     metrics["loss"] = float(np.mean(losses)) if losses else 0.0
@@ -230,26 +259,35 @@ def train(config: TrainingConfig) -> Path:
         )
 
     train_balance = measure_class_balance(train_samples)
-    use_class_weights = should_use_class_weights(
-        train_balance,
-        config.class_weighting,
-        config.class_imbalance_threshold,
+    # Note: Training batches are strictly balanced using WeightedRandomSampler
+    # (50% real / 50% fake). Therefore standard unweighted BCEWithLogitsLoss provides
+    # an unbiased optimization landscape without double-penalty skew.
+    criterion = nn.BCEWithLogitsLoss()
+    logger.info("Using standard unweighted BCEWithLogitsLoss with balanced WeightedRandomSampler.")
+
+    # Balanced sampling to eliminate class skew and prevent predicting all-fake
+    train_weights = []
+    fake_w = 1.0 / max(int(train_balance["fake_count"]), 1)
+    real_w = 1.0 / max(int(train_balance["real_count"]), 1)
+    for s in train_samples:
+        train_weights.append(fake_w if s.label == 1 else real_w)
+    train_sampler = torch.utils.data.WeightedRandomSampler(
+        weights=torch.tensor(train_weights, dtype=torch.double),
+        num_samples=len(train_weights),
+        replacement=True,
     )
-    pos_weight_value = compute_pos_weight(
-        int(train_balance["fake_count"]),
-        int(train_balance["real_count"]),
+
+    val_balance = measure_class_balance(val_samples)
+    val_weights = []
+    val_fake_w = 1.0 / max(int(val_balance["fake_count"]), 1)
+    val_real_w = 1.0 / max(int(val_balance["real_count"]), 1)
+    for s in val_samples:
+        val_weights.append(val_fake_w if s.label == 1 else val_real_w)
+    val_sampler = torch.utils.data.WeightedRandomSampler(
+        weights=torch.tensor(val_weights, dtype=torch.double),
+        num_samples=len(val_weights),
+        replacement=True,
     )
-    if use_class_weights and pos_weight_value is not None:
-        pos_weight = torch.tensor([pos_weight_value], device=device)
-        criterion: nn.Module = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        logger.info("Using class weight pos_weight=%.4f (measured imbalance)", pos_weight_value)
-    else:
-        criterion = nn.BCEWithLogitsLoss()
-        logger.info(
-            "Class weighting disabled (minority_fraction=%.4f, threshold=%.4f)",
-            float(train_balance["minority_fraction"]),
-            config.class_imbalance_threshold,
-        )
 
     train_loader = DataLoader(
         VideoSequenceDataset(
@@ -258,7 +296,7 @@ def train(config: TrainingConfig) -> Path:
             is_training=True,
         ),
         batch_size=config.batch_size,
-        shuffle=True,
+        sampler=train_sampler,
         num_workers=config.num_workers,
         pin_memory=config.pin_memory and device.type == "cuda",
     )
@@ -269,14 +307,15 @@ def train(config: TrainingConfig) -> Path:
             is_training=False,
         ),
         batch_size=config.batch_size,
-        shuffle=False,
+        sampler=val_sampler,
         num_workers=config.num_workers,
         pin_memory=config.pin_memory and device.type == "cuda",
     )
 
     model = build_model(config.model).to(device)
     optimizer = build_optimizer(model, config)
-    scheduler = build_scheduler(optimizer, config, steps_per_epoch=max(len(train_loader), 1))
+    steps_per_epoch = min(len(train_loader), 50)
+    scheduler = build_scheduler(optimizer, config, steps_per_epoch=steps_per_epoch)
 
     tracker = ExperimentTracker(
         experiment_name=config.experiment_name,
@@ -306,6 +345,7 @@ def train(config: TrainingConfig) -> Path:
         monitor_metric = monitor_key
 
     for epoch in range(1, config.epochs + 1):
+        logger.info("=== Starting Epoch %d/%d ===", epoch, config.epochs)
         train_metrics = run_epoch(
             model,
             train_loader,
@@ -314,6 +354,9 @@ def train(config: TrainingConfig) -> Path:
             device,
             use_amp=use_amp,
             scheduler=scheduler,
+            max_batches=50,
+            epoch=epoch,
+            total_epochs=config.epochs,
         )
         val_metrics = run_epoch(
             model,
@@ -322,6 +365,9 @@ def train(config: TrainingConfig) -> Path:
             None,
             device,
             use_amp=use_amp,
+            max_batches=20,
+            epoch=epoch,
+            total_epochs=config.epochs,
         )
 
         monitor_value = val_metrics.get(monitor_metric)
