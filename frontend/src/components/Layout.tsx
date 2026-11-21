@@ -6,11 +6,6 @@ import {
   Image as ImageIcon, 
   Video, 
   Mic, 
-  Layers, 
-  BarChart3, 
-  Eye, 
-  TrendingUp, 
-  FlaskConical,
   Menu,
   X
 } from 'lucide-react'
@@ -18,14 +13,9 @@ import { cn } from '@/lib/utils'
 
 const navigation = [
   { name: 'Overview', href: '/', icon: LayoutDashboard },
-  { name: 'Image', href: '/image', icon: ImageIcon },
   { name: 'Video', href: '/video', icon: Video },
   { name: 'Audio', href: '/audio', icon: Mic },
-  { name: 'Fusion', href: '/multimodal', icon: Layers },
-  { name: 'Confidence', href: '/confidence', icon: BarChart3 },
-  { name: 'Explainability', href: '/explainability', icon: Eye },
-  { name: 'Generalization', href: '/generalization', icon: TrendingUp },
-  { name: 'Experiments', href: '/experiments', icon: FlaskConical },
+  { name: 'Image', href: '/image', icon: ImageIcon },
 ]
 
 interface LayoutProps {

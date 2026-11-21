@@ -97,25 +97,40 @@ class VideoInferenceService(BaseInferenceService):
 
         try:
             raw_frames: list[np.ndarray] = []
-            cap = cv2.VideoCapture(str(file_path))
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-            if total_frames > 0 and cap.isOpened():
-                if total_frames >= self.sequence_length:
-                    indices = set(np.linspace(0, total_frames - 1, self.sequence_length, dtype=int))
-                else:
-                    indices = set(range(total_frames))
+            # Support sequence directory of frames directly
+            if file_path.is_dir():
+                img_files = sorted([f for f in file_path.iterdir() if f.suffix.lower() in ('.png', '.jpg', '.jpeg')])
+                if img_files:
+                    if len(img_files) >= self.sequence_length:
+                        indices = np.linspace(0, len(img_files) - 1, self.sequence_length, dtype=int)
+                    else:
+                        indices = np.arange(self.sequence_length)
+                        indices[indices >= len(img_files)] = len(img_files) - 1
+                    for i in indices:
+                        img = cv2.imread(str(img_files[i]))
+                        if img is not None:
+                            raw_frames.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            else:
+                cap = cv2.VideoCapture(str(file_path))
+                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-                idx = 0
-                while cap.isOpened() and len(raw_frames) < self.sequence_length:
-                    ret, frame = cap.read()
-                    if not ret:
-                        break
-                    if idx in indices:
-                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        raw_frames.append(frame_rgb)
-                    idx += 1
-                cap.release()
+                if total_frames > 0 and cap.isOpened():
+                    if total_frames >= self.sequence_length:
+                        indices = set(np.linspace(0, total_frames - 1, self.sequence_length, dtype=int))
+                    else:
+                        indices = set(range(total_frames))
+
+                    idx = 0
+                    while cap.isOpened() and len(raw_frames) < self.sequence_length:
+                        ret, frame = cap.read()
+                        if not ret:
+                            break
+                        if idx in indices:
+                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            raw_frames.append(frame_rgb)
+                        idx += 1
+                    cap.release()
 
             if not raw_frames:
                 logger.warning("VideoCapture extracted 0 frames from %s, using synthetic tensor", file_path)
