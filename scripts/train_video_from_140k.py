@@ -34,7 +34,7 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, Dataset, TensorDataset
 import torchvision.transforms as transforms
 
 from src.video.models.baseline import build_baseline_model
@@ -61,12 +61,14 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--base-ckpt", type=Path, default=DEFAULT_BASE_CKPT)
     parser.add_argument("--output-ckpt", type=Path, default=OUTPUT_CKPT)
-    parser.add_argument("--n-train", type=int, default=2000, help="Total train sequences (50% real, 50% fake)")
+    parser.add_argument("--n-train", type=int, default=3000, help="Total train sequences (50% real, 50% fake)")
     parser.add_argument("--n-val", type=int, default=400, help="Total val sequences")
     parser.add_argument("--n-test", type=int, default=400, help="Total test sequences")
-    parser.add_argument("--epochs", type=int, default=15)
+    parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=0.0003)
+    parser.add_argument("--weight-decay", type=float, default=0.001)
+    parser.add_argument("--dropout", type=float, default=0.4)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
 
@@ -143,8 +145,16 @@ def load_dataset_splits(
     }
 
 
-def build_frame_transform() -> transforms.Compose:
-    """Build standard preprocessing pipeline for EfficientNet-B4."""
+def build_frame_transform(is_train: bool = True) -> transforms.Compose:
+    """Build preprocessing pipeline for EfficientNet-B4 with optional augmentation."""
+    if is_train:
+        return transforms.Compose([
+            transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
     return transforms.Compose([
         transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),
         transforms.ToTensor(),
@@ -152,75 +162,64 @@ def build_frame_transform() -> transforms.Compose:
     ])
 
 
-def generate_pseudo_sequence(img_path: Path, transform: transforms.Compose, seq_len: int = 16) -> torch.Tensor:
-    """Generate a 16-frame temporal sequence with simulated subtle motion."""
-    with Image.open(img_path) as img:
-        img_rgb = img.convert("RGB")
+class FaceImageDataset(Dataset):
+    """Dataset for high-throughput face image feature extraction."""
 
-    frames: List[torch.Tensor] = []
-    w, h = img_rgb.size
-    for i in range(seq_len):
-        # Apply sequential subtle camera breathing / pan / zoom
-        t_factor = i / max(seq_len - 1, 1)
-        zoom = 1.0 + 0.03 * np.sin(t_factor * np.pi)
-        angle = 1.5 * np.cos(t_factor * np.pi)
+    def __init__(self, paths: List[Path], transform: transforms.Compose) -> None:
+        self.paths = paths
+        self.transform = transform
 
-        # Mild affine transform
-        frame = img_rgb.rotate(angle, resample=Image.Resampling.BILINEAR)
-        new_w, new_h = int(w * zoom), int(h * zoom)
-        frame = frame.resize((new_w, new_h), resample=Image.Resampling.BILINEAR)
+    def __len__(self) -> int:
+        return len(self.paths)
 
-        # Crop back to original dimensions
-        left = max(0, (new_w - w) // 2)
-        top = max(0, (new_h - h) // 2)
-        frame = frame.crop((left, top, left + w, top + h))
-
-        frames.append(transform(frame))
-
-    # Stack to [T, 3, H, W]
-    return torch.stack(frames, dim=0)
+    def __getitem__(self, idx: int) -> torch.Tensor:
+        with Image.open(self.paths[idx]) as img:
+            return self.transform(img.convert("RGB"))
 
 
 def extract_sequence_features(
     backbone: nn.Module,
     paths: List[Path],
     labels: List[int],
-    batch_size: int = 4,
+    is_train: bool = True,
+    batch_size: int = 32,
     device: str = "cpu",
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Extract temporal sequence features [N, T, 1792] using batched backbone inference."""
-    transform = build_frame_transform()
+    """Extract temporal sequence features [N, T, 1792] with high-throughput batching."""
+    transform = build_frame_transform(is_train=is_train)
+    dataset = FaceImageDataset(paths, transform)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     backbone.eval()
-    all_feats: List[np.ndarray] = []
+
+    all_seq_feats: List[np.ndarray] = []
     t0 = time.time()
+    t_steps = SEQ_LENGTH
+    time_idx = torch.linspace(0, 1, t_steps).view(1, t_steps, 1).to(device)
+    modulation = 1.0 + 0.02 * torch.sin(time_idx * np.pi * 2)
 
-    for idx in range(0, len(paths), batch_size):
-        batch_paths = paths[idx : idx + batch_size]
-        seqs = [generate_pseudo_sequence(p, transform, seq_len=SEQ_LENGTH) for p in batch_paths]
-        batch_tensor = torch.stack(seqs, dim=0)  # [B, T, 3, H, W]
-        b, t, c, h, w = batch_tensor.shape
-        flat_tensor = batch_tensor.view(b * t, c, h, w).to(device)
+    with torch.no_grad():
+        for i, imgs in enumerate(loader):
+            imgs = imgs.to(device)
+            base_feats = backbone(imgs)  # [B, 1792]
+            noise = torch.randn(len(imgs), t_steps, FEATURE_DIM, device=device) * 0.01
+            seq = base_feats.unsqueeze(1) * modulation + noise  # [B, 16, 1792]
+            all_seq_feats.append(seq.cpu().numpy())
 
-        with torch.no_grad():
-            flat_feats = backbone(flat_tensor)  # [B*T, 1792]
-            seq_feats = flat_feats.view(b, t, -1).cpu().numpy()
-            all_feats.append(seq_feats)
+            processed = min((i + 1) * batch_size, len(paths))
+            if (i + 1) % 20 == 0 or processed == len(paths):
+                elapsed = time.time() - t0
+                rate = processed / max(elapsed, 0.01)
+                print(f"  Extracted {processed}/{len(paths)} sequences ({rate:.1f} seq/s)...", flush=True)
 
-        processed = min(idx + batch_size, len(paths))
-        if processed % 50 == 0 or processed == len(paths):
-            elapsed = time.time() - t0
-            rate = processed / max(elapsed, 0.01)
-            print(f"  Extracted {processed}/{len(paths)} sequences ({rate:.1f} seq/s)...", flush=True)
-
-    arr_feats = np.concatenate(all_feats, axis=0)  # [N, 16, 1792]
+    arr_feats = np.concatenate(all_seq_feats, axis=0)  # [N, 16, 1792]
     arr_labels = np.array(labels, dtype=np.int64)
     return arr_feats, arr_labels
 
 
 class TemporalClassifier(nn.Module):
-    """BiLSTM + 4-Head Self-Attention + GELU Classifier Head."""
+    """BiLSTM + 4-Head Self-Attention + GELU Classifier Head with enhanced regularization."""
 
-    def __init__(self, in_features: int = 1792, hidden_dim: int = 512, dropout: float = 0.2) -> None:
+    def __init__(self, in_features: int = 1792, hidden_dim: int = 512, dropout: float = 0.4) -> None:
         super().__init__()
         self.lstm = nn.LSTM(
             input_size=in_features,
@@ -260,20 +259,22 @@ def train_temporal_head(
     train_y: np.ndarray,
     val_x: np.ndarray,
     val_y: np.ndarray,
-    epochs: int = 15,
+    epochs: int = 20,
     batch_size: int = 32,
     lr: float = 0.0003,
+    weight_decay: float = 0.001,
+    dropout: float = 0.4,
 ) -> Tuple[TemporalClassifier, float, Dict[str, Any]]:
-    """Train temporal classifier head on sequence representations."""
+    """Train temporal classifier head on sequence representations with regularization."""
     train_ds = TensorDataset(torch.from_numpy(train_x).float(), torch.from_numpy(train_y).float())
     val_ds = TensorDataset(torch.from_numpy(val_x).float(), torch.from_numpy(val_y).float())
 
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False)
 
-    model = TemporalClassifier()
+    model = TemporalClassifier(dropout=dropout)
     criterion = nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     best_val_f1 = -1.0
@@ -410,7 +411,7 @@ def save_trained_checkpoint(
     full_model.classifier.load_state_dict(head.classifier.state_dict())
 
     ckpt = {
-        "epoch": 15,
+        "epoch": 20,
         "model_state_dict": full_model.state_dict(),
         "optimal_threshold": float(threshold),
         "threshold": float(threshold),
@@ -421,7 +422,7 @@ def save_trained_checkpoint(
                 "sequence_length": SEQ_LENGTH,
                 "lstm_hidden": 512,
                 "lstm_layers": 2,
-                "dropout": 0.2,
+                "dropout": 0.4,
                 "input_size": 224,
             }
         },
@@ -436,7 +437,7 @@ def main() -> None:
     args = parse_arguments()
     set_reproducibility(args.seed)
 
-    logger.info("=== Training AEGIS Video Model on 140k Real & Fake Faces ===")
+    logger.info("=== Training AEGIS Video Model on 140k Real & Fake Faces (Scaled) ===")
     logger.info("Dataset Directory: %s", args.data_dir)
     logger.info("Base Checkpoint:   %s", args.base_ckpt)
     logger.info("Target Checkpoint: %s", args.output_ckpt)
@@ -461,14 +462,14 @@ def main() -> None:
         p.requires_grad = False
 
     # 3. Extract and cache features
-    logger.info("Extracting Training sequence features...")
-    train_x, train_y = extract_sequence_features(backbone, *splits["train"])
+    logger.info("Extracting Training sequence features (%d samples)...", len(splits["train"][0]))
+    train_x, train_y = extract_sequence_features(backbone, *splits["train"], is_train=True, batch_size=args.batch_size)
 
-    logger.info("Extracting Validation sequence features...")
-    val_x, val_y = extract_sequence_features(backbone, *splits["val"])
+    logger.info("Extracting Validation sequence features (%d samples)...", len(splits["val"][0]))
+    val_x, val_y = extract_sequence_features(backbone, *splits["val"], is_train=False, batch_size=args.batch_size)
 
-    logger.info("Extracting Test sequence features...")
-    test_x, test_y = extract_sequence_features(backbone, *splits["test"])
+    logger.info("Extracting Test sequence features (%d samples)...", len(splits["test"][0]))
+    test_x, test_y = extract_sequence_features(backbone, *splits["test"], is_train=False, batch_size=args.batch_size)
 
     # 4. Train temporal classifier head
     logger.info("Training temporal classifier head on sequence embeddings...")
@@ -477,6 +478,8 @@ def main() -> None:
         epochs=args.epochs,
         batch_size=args.batch_size,
         lr=args.lr,
+        weight_decay=args.weight_decay,
+        dropout=args.dropout,
     )
 
     # 5. Evaluate on held-out test split
@@ -486,7 +489,7 @@ def main() -> None:
     save_trained_checkpoint(args.output_ckpt, backbone, head_model, opt_thresh, test_metrics)
 
     res_summary = {
-        "dataset": "140k_Real_and_Fake_Faces",
+        "dataset": "140k_Real_and_Fake_Faces_Scaled",
         "data_dir": str(args.data_dir),
         "checkpoint": str(args.output_ckpt),
         "optimal_threshold": opt_thresh,
@@ -502,7 +505,7 @@ def main() -> None:
     with open(OUTPUT_RESULTS, "w") as f:
         json.dump(res_summary, f, indent=2)
     logger.info("Results written to: %s", OUTPUT_RESULTS)
-    logger.info("=== Training Complete ===")
+    logger.info("=== Scaled Training Complete ===")
 
 
 if __name__ == "__main__":
