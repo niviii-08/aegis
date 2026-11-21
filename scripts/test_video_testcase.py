@@ -195,7 +195,12 @@ def main() -> None:
     if wild_ckpt.is_file():
         run_benchmark("AEGIS WildDeepfake Fine-Tuned Model", wild_ckpt, cases)
 
-    # 2. Test FaceForensics++ Baseline Model
+    # 2. Test 140k Faces Adapted Video Model
+    v140k_ckpt = PROJECT_ROOT / "models" / "video" / "video_140k_best.pt"
+    if v140k_ckpt.is_file():
+        run_benchmark("AEGIS 140k Faces Adapted Video Model", v140k_ckpt, cases)
+
+    # 3. Test FaceForensics++ Baseline Model
     baseline_ckpt = PROJECT_ROOT / "models" / "video" / "baseline_best.pt"
     if baseline_ckpt.is_file():
         run_benchmark("AEGIS FaceForensics++ Baseline Model", baseline_ckpt, cases)
