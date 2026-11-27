@@ -2,12 +2,13 @@
 
 from api.services.base import BaseInferenceService
 from api.services.image_service import ImageInferenceService
-from api.services.video_service import VideoInferenceService
+from api.services.video_service import VideoInferenceService, VideoEnsembleService
 from api.services.audio_service import AudioInferenceService
 
 __all__ = [
     "BaseInferenceService",
     "ImageInferenceService",
     "VideoInferenceService",
+    "VideoEnsembleService",
     "AudioInferenceService",
 ]

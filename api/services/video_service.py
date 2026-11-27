@@ -239,3 +239,98 @@ class VideoInferenceService(BaseInferenceService):
         except Exception as e:
             logger.error(f"Video inference failed: {e}")
             raise RuntimeError(f"Inference failed: {e}")
+
+
+class VideoEnsembleService:
+    """Production Multi-Expert Video Deepfake Ensemble Service.
+    
+    Combines specialized domain experts (WildDeepfake, 140k Faces, DFDC, Baseline)
+    with Test-Time Augmentation and Forensic Risk Gating for maximum accuracy.
+    """
+
+    def __init__(self, models_dir: Path | None = None, device: str = "auto") -> None:
+        self.device = torch.device("cuda" if (device == "auto" and torch.cuda.is_available()) else ("cpu" if device == "auto" else device))
+        self.models_dir = models_dir or (SRC_ROOT.parent / "models" / "video")
+        self.experts: dict[str, VideoInferenceService] = {}
+        self._load_available_experts()
+
+    def _load_available_experts(self) -> None:
+        """Discover and load all trained video expert checkpoints."""
+        known_ckpts = {
+            "wild": ("wild_deepfake_best.pt", 0.500),
+            "140k": ("video_140k_best.pt", 0.680),
+            "dfdc": ("dfdc_best.pt", 0.220),
+            "baseline": ("baseline_best.pt", 0.390),
+        }
+        for name, (fname, def_th) in known_ckpts.items():
+            ckpt_path = self.models_dir / fname
+            if ckpt_path.is_file():
+                try:
+                    svc = VideoInferenceService(checkpoint_path=ckpt_path, device=str(self.device), threshold=def_th)
+                    self.experts[name] = svc
+                    logger.info("Ensemble loaded expert [%s] from %s", name, fname)
+                except Exception as exc:
+                    logger.warning("Could not load expert %s: %exc", name, exc)
+
+    def preprocess(self, file_path: Path) -> torch.Tensor:
+        """Preprocess video using primary available expert."""
+        if not self.experts:
+            raise RuntimeError("No video models loaded in VideoEnsembleService.")
+        primary_svc = next(iter(self.experts.values()))
+        return primary_svc.preprocess(file_path)
+
+    def compute_temporal_flicker_score(self, tensor: torch.Tensor) -> float:
+        """Measure inter-frame pixel differences to catch deepfake micro-flickering."""
+        # tensor shape: [1, T, 3, H, W]
+        if tensor.shape[1] < 2:
+            return 0.0
+        diffs = torch.abs(tensor[:, 1:] - tensor[:, :-1])
+        variance = float(torch.mean(diffs).item())
+        # Normalized flicker heuristic [0, 1]
+        return min(max(variance * 1.5, 0.0), 1.0)
+
+    def predict(self, video_input: torch.Tensor | Path | str, tta: bool = True) -> dict[str, Any]:
+        """Run multi-expert ensemble inference with risk gating and TTA."""
+        t0 = time.time()
+        tensor = self.preprocess(Path(video_input)) if isinstance(video_input, (str, Path)) else video_input
+        expert_scores: dict[str, float] = {}
+        expert_verdicts: dict[str, str] = {}
+        calibrated_risks: list[float] = []
+
+        for name, svc in self.experts.items():
+            res = svc.predict(tensor, tta=tta)
+            p = float(res["probability"])
+            expert_scores[name] = p
+            expert_verdicts[name] = res["prediction"]
+            # Risk normalized relative to expert's calibrated threshold
+            risk = p / max(svc.threshold * 2.0, 1e-4) if p < svc.threshold else 0.5 + 0.5 * ((p - svc.threshold) / max(1.0 - svc.threshold, 1e-4))
+            calibrated_risks.append(min(max(risk, 0.0), 1.0))
+
+        flicker_score = self.compute_temporal_flicker_score(tensor)
+        weights = {"wild": 0.35, "140k": 0.30, "dfdc": 0.20, "baseline": 0.15}
+        tot_w = sum(weights.get(n, 0.1) for n in self.experts)
+        weighted_prob = sum(weights.get(n, 0.1) * expert_scores[n] for n in self.experts) / max(tot_w, 1e-6)
+
+        high_conf_flag = any(expert_scores[n] >= 0.90 for n in self.experts)
+        fake_votes = sum(1 for v in expert_verdicts.values() if v == "fake")
+
+        if high_conf_flag or (fake_votes >= 2 and weighted_prob >= 0.45):
+            verdict = "fake"
+            final_prob = max(weighted_prob, 0.75)
+        elif weighted_prob >= 0.50:
+            verdict = "fake"
+            final_prob = weighted_prob
+        else:
+            verdict = "real"
+            final_prob = min(weighted_prob, 0.45)
+
+        return {
+            "prediction": verdict,
+            "probability": round(float(final_prob), 6),
+            "temporal_flicker_score": round(flicker_score, 4),
+            "inference_time_ms": round((time.time() - t0) * 1000, 2),
+            "expert_scores": expert_scores,
+            "expert_verdicts": expert_verdicts,
+            "models_evaluated": list(self.experts.keys()),
+        }
+
